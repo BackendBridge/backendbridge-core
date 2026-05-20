@@ -1,0 +1,43 @@
+{
+  "name": "backendbridge",
+  "version": "0.1.0",
+  "description": "CLI de conversion API Symfony <-> Laravel",
+  "main": "dist/cli.js",
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsup src/cli.ts --format esm --clean --out-dir dist",
+    "dev": "tsx src/cli.ts",
+    "lint": "tsc --noEmit",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "symfony",
+    "laravel",
+    "api",
+    "cli",
+    "openapi",
+    "migration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "backendbridge": "dist/cli.js"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "js-yaml": "^4.1.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.9.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  }
+}
