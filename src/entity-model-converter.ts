@@ -2,6 +2,16 @@ import path from "node:path";
 import fs from "node:fs";
 import { parsePhpClasses } from "./php-class-parser.js";
 
+function isConvertibleEntitySource(filePath: string, className: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/");
+  const shortName = className.split("\\").pop() || className;
+
+  return (
+    /\/(Entity|Model)s?\//.test(normalized) ||
+    /(?:Entity|Model)$/.test(shortName)
+  );
+}
+
 function mapPhpTypeToLaravel(type?: string): string {
   if (!type) return "string";
   const t = type.toLowerCase();
@@ -187,6 +197,9 @@ export function convertEntitiesToModels(sourcePath: string, outPath: string, tar
   const parsed = parsePhpClasses(sourcePath);
   const generated: string[] = [];
   for (const p of parsed) {
+    if (!isConvertibleEntitySource(p.file, p.class)) {
+      continue;
+    }
     if (target === 'laravel') {
       const file = generateLaravelModelFromPhpClass(p, path.join(outPath, 'app', 'Models'), parsed);
       generated.push(file);
