@@ -67,7 +67,7 @@ jobs:
 
       - name: Run conversion (dry-run)
         run: |
-          node ./dist/cli.js convert --to laravel --openapi ./ci-openapi.json --source . --out ./ci-out --dry-run --with-tests
+          node ./dist/cli.js convert --from symfony --to laravel --openapi ./ci-openapi.json --source . --out ./ci-out --dry-run --with-tests
 
       - name: Apply generated SQL migrations to SQLite (if any)
         run: |
