@@ -8,6 +8,13 @@ import { toStudly, ensureDir } from "../utils.js";
 
 function schemaPropertyToAsserts(prop: EndpointSchema["properties"][string], required: boolean): string[] {
   const asserts: string[] = [];
+
+  if (prop.format === "binary") {
+    if (required) asserts.push("#[Assert\\NotNull]");
+    asserts.push("#[Assert\\File(maxSize: '10M')]");
+    return asserts;
+  }
+
   if (required) asserts.push("#[Assert\\NotBlank]");
   if (prop.nullable) asserts.push("// nullable");
 
@@ -38,6 +45,7 @@ function schemaPropertyToAsserts(prop: EndpointSchema["properties"][string], req
 
 function phpTypeFromSchema(prop: EndpointSchema["properties"][string], required: boolean): string {
   const nullable = !required || prop.nullable ? "?" : "";
+  if (prop.format === "binary") return `${nullable}UploadedFile`;
   const type = prop.type ?? "string";
   if (type === "integer") return `${nullable}int`;
   if (type === "number") return `${nullable}float`;
@@ -48,6 +56,7 @@ function phpTypeFromSchema(prop: EndpointSchema["properties"][string], required:
 
 function generateDtoClass(className: string, schema: EndpointSchema): string {
   const properties: string[] = [];
+  const hasFileField = Object.values(schema.properties).some((p) => p.format === "binary");
 
   for (const [field, prop] of Object.entries(schema.properties)) {
     const isRequired = schema.required?.includes(field) ?? false;
@@ -62,12 +71,16 @@ function generateDtoClass(className: string, schema: EndpointSchema): string {
     properties.push("");
   }
 
+  const fileImport = hasFileField
+    ? "use Symfony\\Component\\HttpFoundation\\File\\UploadedFile;\n"
+    : "";
+
   return `<?php
 
 namespace App\\Dto\\Generated;
 
 use Symfony\\Component\\Validator\\Constraints as Assert;
-
+${fileImport}
 class ${className}
 {
 ${properties.join("\n")}
@@ -86,6 +99,10 @@ function buildControllerBody(
     ? `        // Auth: ${rule.auth.join(", ")}\n        // $this->denyAccessUnlessGranted('VIEW', $resource);\n`
     : "";
 
+  const hasFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.format === "binary",
+  );
+
   const pathParams = (endpoint.pathParameters ?? [])
     .filter((p) => p.in === "path")
     .map((p) => {
@@ -94,12 +111,27 @@ function buildControllerBody(
     })
     .join("\n");
 
-  const dtoParam = dtoClass ? `#[MapRequestPayload] ${dtoClass} $payload` : "";
+  const isWrite = ["post", "put", "patch"].includes(endpoint.method);
+  const persistHint = isWrite
+    ? `        // $em->persist($entity); $em->flush(); // inject EntityManagerInterface $em via __construct\n`
+    : "";
+
+  const fileHint = hasFileUpload
+    ? `        // File: $file = $request->files->get('field'); $file->move($targetDir, $filename);\n`
+    : "";
+
+  // MapRequestPayload doesn't handle file uploads — fall back to Request for those cases
+  let dtoParam: string;
+  if (hasFileUpload || !dtoClass) {
+    dtoParam = "Request $request";
+  } else {
+    dtoParam = `#[MapRequestPayload] ${dtoClass} $payload`;
+  }
   const methodSig = `public function __invoke(${dtoParam}): JsonResponse`;
 
   return `    ${methodSig}
     {
-${authHint}${pathParams ? pathParams + "\n" : ""}
+${authHint}${pathParams ? pathParams + "\n" : ""}${persistHint}${fileHint}
         return $this->json([
             'status' => 'ok',
             'operation' => '${endpoint.operationId}',
@@ -122,9 +154,15 @@ function generateControllerClass(
     rule?.notes ? ` * Notes: ${rule.notes}` : undefined,
   ].filter(Boolean).join("\n");
 
-  const dtoImport = dtoClass
+  const hasFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.format === "binary",
+  );
+
+  const dtoImport = dtoClass && !hasFileUpload
     ? `use App\\Dto\\Generated\\${dtoClass};\nuse Symfony\\Component\\HttpKernel\\Attribute\\MapRequestPayload;\n`
-    : "";
+    : hasFileUpload
+      ? "use Symfony\\Component\\HttpFoundation\\Request;\n"
+      : "";
 
   return `<?php
 

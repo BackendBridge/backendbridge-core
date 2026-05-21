@@ -35,7 +35,10 @@ function laravelRulesToJsonSchema(rules: Record<string, string[]>): ExtractedSch
     else if (ruleList.includes("numeric") || ruleList.includes("decimal")) prop.type = "number";
     else if (ruleList.includes("boolean") || ruleList.includes("bool")) prop.type = "boolean";
     else if (ruleList.includes("array")) prop.type = "array";
-    else if (ruleList.includes("email")) {
+    else if (ruleList.includes("file") || ruleList.includes("image")) {
+      prop.type = "string";
+      prop.format = "binary";
+    } else if (ruleList.includes("email")) {
       prop.type = "string";
       prop.format = "email";
     } else if (ruleList.includes("url")) {

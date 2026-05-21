@@ -7,6 +7,15 @@ import { toStudly, ensureDir } from "../utils.js";
 // ─── Schema → Laravel validation rules ───────────────────────────────────────
 
 function schemaPropertyToRules(name: string, prop: EndpointSchema["properties"][string], required: boolean): string {
+  // File uploads use a dedicated rule set
+  if (prop.format === "binary") {
+    const fileRules: string[] = [required ? "required" : "nullable", "file"];
+    const isImage = /photo|image|avatar|picture|thumbnail|cover/i.test(name);
+    if (isImage) fileRules.push("image", "mimes:jpg,jpeg,png,gif,webp", "max:5120");
+    else fileRules.push("mimes:pdf,doc,docx,xls,xlsx,zip,jpg,jpeg,png", "max:10240");
+    return `            '${name}' => '${fileRules.join("|")}',`;
+  }
+
   const rules: string[] = [];
   if (required) rules.push("required"); else rules.push("sometimes");
   if (prop.nullable) rules.push("nullable");
@@ -71,6 +80,10 @@ function buildControllerBody(endpoint: EndpointContract, formRequestClass: strin
     ? `        // Auth: ${rule.auth.join(", ")}\n        // $this->authorize('view', $model);\n`
     : "";
 
+  const hasFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.format === "binary",
+  );
+
   const requestParam = formRequestClass
     ? `${formRequestClass} $request`
     : `Request $request`;
@@ -80,9 +93,18 @@ function buildControllerBody(endpoint: EndpointContract, formRequestClass: strin
     .map((p) => `        // Path param: $${p.name} (${p.schema?.type ?? "string"})`)
     .join("\n");
 
+  const isWrite = ["post", "put", "patch"].includes(endpoint.method);
+  const persistHint = isWrite
+    ? `        // $validated = $request->validated();\n        // $model = MyModel::create($validated); // or $model->fill($validated)->save();\n`
+    : "";
+
+  const fileHint = hasFileUpload
+    ? `        // File: $file = $request->file('field'); $path = $file->store('uploads', 'public');\n`
+    : "";
+
   return `    public function __invoke(${requestParam}): JsonResponse
     {
-${authHint}${pathParams ? pathParams + "\n" : ""}
+${authHint}${pathParams ? pathParams + "\n" : ""}${persistHint}${fileHint}
         return response()->json([
             'status' => 'ok',
             'operation' => '${endpoint.operationId}',
