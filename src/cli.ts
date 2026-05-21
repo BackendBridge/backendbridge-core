@@ -44,6 +44,7 @@ program
   .option("--with-seeders", "Generer seeders, factories (Laravel) ou fixtures (Symfony)", false)
   .option("--with-middleware", "Generer middleware auth/JWT/throttle/CORS", false)
   .option("--with-mailer", "Generer config mailer + stubs Mailable/Symfony Email", false)
+  .option("--with-jobs", "Generer Jobs/Messages, Events/Listeners et Notifications", false)
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler la conversion sans commit")
@@ -87,6 +88,7 @@ program
           withSeeders: Boolean(rawOptions.withSeeders),
           withMiddleware: Boolean(rawOptions.withMiddleware),
           withMailer: Boolean(rawOptions.withMailer),
+          withJobs: Boolean(rawOptions.withJobs),
         },
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
@@ -591,6 +593,7 @@ program
   .option("--with-seeders", "Générer seeders/factories", false)
   .option("--with-middleware", "Générer middleware stubs", false)
   .option("--with-mailer", "Générer config mailer + stubs", false)
+  .option("--with-jobs", "Générer Jobs/Messages, Events/Listeners et Notifications", false)
   .option("--dry-run", "Simuler sans écrire", false)
   .action(async (rawOptions) => {
     const openApiPath = path.resolve(rawOptions.openapi);
@@ -609,6 +612,7 @@ program
       withSeeders: Boolean(rawOptions.withSeeders),
       withMiddleware: Boolean(rawOptions.withMiddleware),
       withMailer: Boolean(rawOptions.withMailer),
+      withJobs: Boolean(rawOptions.withJobs),
     };
 
     const results: { framework: string; files: number; warnings: number }[] = [];

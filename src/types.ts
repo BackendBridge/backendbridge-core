@@ -62,4 +62,5 @@ export interface ConvertOptions {
   withSeeders?: boolean;
   withMiddleware?: boolean;
   withMailer?: boolean;
+  withJobs?: boolean;
 }

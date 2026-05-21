@@ -16,6 +16,7 @@ import { generateDockerFiles } from "./docker-generator.js";
 import { generateLaravelSeedersAndFactories, generateSymfonyFixtures } from "./seeder-factory-generator.js";
 import { generateLaravelMiddleware, generateSymfonyMiddleware } from "./middleware-generator.js";
 import { generateLaravelMailer, generateSymfonyMailer } from "./mailer-generator.js";
+import { generateLaravelJobsEventsNotifications, generateSymfonyJobsEventsNotifications } from "./job-event-notification-generator.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
 function ensureDir(dirPath: string): void {
@@ -154,6 +155,18 @@ export function runConversion(
       generatedFiles.push(...mailerFiles);
     } catch (e) {
       warnings.push(`[mailer] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Jobs + Events + Notifications
+  if (options.withJobs) {
+    try {
+      const jobFiles = to === "laravel"
+        ? generateLaravelJobsEventsNotifications(contract, options.outPath)
+        : generateSymfonyJobsEventsNotifications(contract, options.outPath);
+      generatedFiles.push(...jobFiles);
+    } catch (e) {
+      warnings.push(`[jobs] ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
