@@ -55,12 +55,15 @@ ${mappingHints ? `${mappingHints}\n` : ""}     */
     #[Route('${endpoint.path}', name: '${endpoint.operationId}', methods: ['${endpoint.method.toUpperCase()}'])]
     public function ${methodName}(): JsonResponse
     {
-        return $this->json([
-            'status' => 'ok',
-            'operation' => '${endpoint.operationId}',
-            'method' => '${endpoint.method.toUpperCase()}',
-            'path' => '${endpoint.path}',
-        ]);
+      ${rule?.auth?.length ? `// Authorization hints: ${rule?.auth?.join(", ")}
+      // Example: $this->denyAccessUnlessGranted('VIEW', $resource);
+  ` : ""}
+      return $this->json([
+        'status' => 'ok',
+        'operation' => '${endpoint.operationId}',
+        'method' => '${endpoint.method.toUpperCase()}',
+        'path' => '${endpoint.path}',
+      ]);
     }
 }
 `;
