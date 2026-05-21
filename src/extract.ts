@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { dump } from "js-yaml";
+import { dump, load as yamlLoad } from "js-yaml";
 import { appendActionLog } from "./action-log.js";
 import { commitGeneratedFiles } from "./commit.js";
 import { resolveFramework } from "./framework.js";
@@ -18,6 +18,13 @@ interface ExtractOptions {
   usePhpAst?: boolean;
 }
 
+interface ExtractQueryParam {
+  name: string;
+  required: boolean;
+  type: string;
+  description?: string;
+}
+
 interface ExtractEndpoint {
   method: string;
   path: string;
@@ -25,6 +32,7 @@ interface ExtractEndpoint {
   summary?: string;
   tags?: string[];
   pathParams?: string[];
+  queryParams?: ExtractQueryParam[];
 }
 
 export interface ExtractResult {
@@ -110,6 +118,7 @@ function extractFromLaravel(sourcePath: string): ExtractEndpoint[] {
       const rawPath = normalizePath(normalizePathParams(m[2]));
       const controller = m[3];
       const tag = tagFromPath(rawPath, "Api");
+      const queryParams = extractQueryParamsFromPhp(content);
       endpoints.push({
         method,
         path: rawPath,
@@ -117,6 +126,7 @@ function extractFromLaravel(sourcePath: string): ExtractEndpoint[] {
         summary: controller ? `${method.toUpperCase()} ${rawPath}` : undefined,
         tags: [tag],
         pathParams: pathParamsFrom(rawPath),
+        queryParams: queryParams.length && method === "get" ? queryParams : undefined,
       });
     }
 
@@ -220,6 +230,7 @@ function extractFromSymfony(sourcePath: string): ExtractEndpoint[] {
         .map((v) => v.replace(/[\s'"]/g, "").toLowerCase())
         .filter((v) => HTTP_METHODS.includes(v));
 
+      const queryParams = extractQueryParamsFromPhp(content);
       for (const method of methods.length ? methods : ["get"]) {
         endpoints.push({
           method,
@@ -227,12 +238,114 @@ function extractFromSymfony(sourcePath: string): ExtractEndpoint[] {
           operationId: routeName ?? `${method}_${rawPath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
           tags: [tag],
           pathParams: pathParamsFrom(rawPath),
+          queryParams: queryParams.length ? queryParams : undefined,
         });
       }
     }
   }
 
   return uniqueByMethodPath(endpoints);
+}
+
+// ─── Symfony YAML routes ─────────────────────────────────────────────────────
+
+function extractFromSymfonyYaml(sourcePath: string): ExtractEndpoint[] {
+  const candidateFiles: string[] = [];
+  const routesDir = path.join(sourcePath, "config", "routes");
+  const rootRoutes = path.join(sourcePath, "config", "routes.yaml");
+
+  if (fs.existsSync(rootRoutes)) candidateFiles.push(rootRoutes);
+  if (fs.existsSync(routesDir)) {
+    for (const f of fs.readdirSync(routesDir)) {
+      if (f.endsWith(".yaml") || f.endsWith(".yml")) {
+        candidateFiles.push(path.join(routesDir, f));
+      }
+    }
+  }
+
+  const endpoints: ExtractEndpoint[] = [];
+
+  for (const filePath of candidateFiles) {
+    let raw: unknown;
+    try {
+      raw = yamlLoad(fs.readFileSync(filePath, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!raw || typeof raw !== "object") continue;
+
+    for (const [routeName, def] of Object.entries(raw as Record<string, unknown>)) {
+      if (!def || typeof def !== "object") continue;
+      const d = def as Record<string, unknown>;
+
+      // Skip resource imports (type: attribute/annotation)
+      if (d.type || d.resource) continue;
+
+      const routePath = typeof d.path === "string" ? normalizePath(normalizePathParams(d.path)) : null;
+      if (!routePath) continue;
+
+      const rawMethods = Array.isArray(d.methods)
+        ? (d.methods as string[]).map((m) => m.toLowerCase())
+        : typeof d.methods === "string"
+          ? [d.methods.toLowerCase()]
+          : ["get"];
+
+      const validMethods = rawMethods.filter((m) => HTTP_METHODS.includes(m));
+      const tag = tagFromPath(routePath, "Api");
+
+      for (const method of validMethods.length ? validMethods : ["get"]) {
+        endpoints.push({
+          method,
+          path: routePath,
+          operationId: routeName,
+          tags: [tag],
+          pathParams: pathParamsFrom(routePath),
+        });
+      }
+    }
+  }
+
+  return uniqueByMethodPath(endpoints);
+}
+
+// ─── Query parameter extraction ───────────────────────────────────────────────
+
+function extractQueryParamsFromPhp(content: string): ExtractQueryParam[] {
+  const params: ExtractQueryParam[] = [];
+  const seen = new Set<string>();
+
+  // $request->query->get('name') / ->getInt('name') / ->getString('name')
+  const queryGetRegex = /\$request->query->(get|getInt|getString|getBoolean|getBag|has|filter)\(\s*['"](\w+)['"]/g;
+  let m: RegExpExecArray | null;
+  while ((m = queryGetRegex.exec(content)) !== null) {
+    const method = m[1];
+    const name = m[2];
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const type = method === "getInt" ? "integer" : method === "getBoolean" ? "boolean" : "string";
+    params.push({ name, required: false, type });
+  }
+
+  // $request->query('name') — Laravel style in routes
+  const laravelQueryRegex = /\$request->(?:query|input)\(\s*['"](\w+)['"]/g;
+  while ((m = laravelQueryRegex.exec(content)) !== null) {
+    const name = m[1];
+    if (seen.has(name)) continue;
+    seen.add(name);
+    params.push({ name, required: false, type: "string" });
+  }
+
+  // @QueryParam or #[QueryParam] annotations (NelmioApiDocBundle, etc.)
+  const queryParamAttrRegex = /#\[QueryParam\([^)]*name:\s*['"](\w+)['"][^)]*(?:requirements:\s*['"]([\w|]+)['"])?[^)]*(?:nullable:\s*(true|false))?/gi;
+  while ((m = queryParamAttrRegex.exec(content)) !== null) {
+    const name = m[1];
+    const nullable = m[3] !== "false";
+    if (seen.has(name)) continue;
+    seen.add(name);
+    params.push({ name, required: !nullable, type: "string" });
+  }
+
+  return params;
 }
 
 // ─── ApiPlatform ─────────────────────────────────────────────────────────────
@@ -341,14 +454,23 @@ function buildOpenApiDocument(
   for (const ep of endpoints) {
     paths[ep.path] ??= {};
 
-    // Path parameters
-    const parameters = (ep.pathParams ?? []).map((p) => ({
-      name: p,
-      in: "path",
-      required: true,
-      schema: { type: /id$/i.test(p) ? "integer" : "string" },
-      description: p,
-    }));
+    // Path parameters + query parameters
+    const parameters: unknown[] = [
+      ...(ep.pathParams ?? []).map((p) => ({
+        name: p,
+        in: "path",
+        required: true,
+        schema: { type: /id$/i.test(p) ? "integer" : "string" },
+        description: p,
+      })),
+      ...(ep.queryParams ?? []).map((q) => ({
+        name: q.name,
+        in: "query",
+        required: q.required,
+        schema: { type: q.type },
+        description: q.description ?? q.name,
+      })),
+    ];
 
     // Request body: match a FormRequest or DTO schema if available
     let requestBody: unknown;
@@ -450,6 +572,7 @@ export function runExtraction(
       ? extractFromLaravel(options.sourcePath)
       : uniqueByMethodPath([
           ...extractFromSymfony(options.sourcePath),
+          ...extractFromSymfonyYaml(options.sourcePath),
           ...extractApiPlatformFromSymfony(options.sourcePath, Boolean(options.usePhpAst)),
         ]);
 
