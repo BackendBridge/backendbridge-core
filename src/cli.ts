@@ -4,6 +4,8 @@ import { Command } from "commander";
 import { runConversion } from "./convert.js";
 import { runDoctor } from "./doctor.js";
 import { runExtraction } from "./extract.js";
+import { detectFeatures } from "./smart-detect.js";
+import { resolveFramework } from "./framework.js";
 import { runMappingExport, runMappingImport } from "./mapping.js";
 import { runMappingEditor } from "./mapping-editor.js";
 import { runPipeline } from "./pipeline.js";
@@ -673,6 +675,137 @@ program
         ]);
         console.log("");
       }
+    }
+  });
+
+// ─── migrate ──────────────────────────────────────────────────────────────────
+
+program
+  .command("migrate")
+  .description(
+    "Conversion intelligente : détecte automatiquement les features présentes et génère uniquement ce qui est pertinent",
+  )
+  .option("--from <framework>", "Framework source: symfony | laravel | auto", "auto")
+  .option("--to <framework>", "Framework cible: symfony | laravel (auto = opposé du source)")
+  .option("--source <path>", "Dossier source du projet API", process.cwd())
+  .option("--out <path>", "Dossier de sortie", "./generated")
+  .option("--openapi <path>", "Contrat OpenAPI (.yaml/.json) — extrait automatiquement si absent")
+  .option("--mapping <path>", "Fichier JSON de mapping métier")
+  .option("--target-version <version>", "Version cible du framework")
+  .option("--commit <message>", "Message de commit")
+  .option("--no-git-commit", "Désactiver le commit automatique")
+  .option("--dry-run", "Simuler sans écrire", false)
+  .action(async (rawOptions) => {
+    const sourcePath = path.resolve(rawOptions.source);
+    const baseOut = path.resolve(rawOptions.out);
+    const dryRun = Boolean(rawOptions.dryRun);
+
+    printHeader("BackendBridge Migrate — conversion intelligente");
+
+    // ── Resolve source framework ──────────────────────────────────────────────
+    let from: SupportedFramework;
+    try {
+      from = resolveFramework(rawOptions.from ?? "auto", sourcePath);
+    } catch {
+      printError("Impossible de détecter le framework source. Précise --from symfony|laravel.");
+      process.exitCode = 1;
+      return;
+    }
+
+    // ── Resolve target framework ──────────────────────────────────────────────
+    const toRaw = rawOptions.to as SupportedFramework | undefined;
+    const to: SupportedFramework = toRaw ?? (from === "laravel" ? "symfony" : "laravel");
+
+    if (from === to) {
+      printError(`Framework source et cible identiques (${from}). Précise --to.`);
+      process.exitCode = 1;
+      return;
+    }
+
+    // ── Detect features ───────────────────────────────────────────────────────
+    console.log(c.bold(`\n  Source détectée : ${c.cyan(from)}  →  Cible : ${c.cyan(to)}\n`));
+    const detected = detectFeatures(sourcePath, from);
+
+    const featureLabels: Array<[keyof typeof detected, string]> = [
+      ["withSeeders",      "Seeders / Fixtures"],
+      ["withMiddleware",   "Middleware"],
+      ["withMailer",       "Mailer"],
+      ["withJobs",         "Jobs / Events / Listeners"],
+      ["withAuth",         "Auth (Policies / Voters)"],
+      ["withRepositories", "Repositories"],
+      ["withCommands",     "Console Commands"],
+      ["withTranslations", "Translations"],
+      ["withExtras",       "Extras (Guard / EventSubscriber / Collections)"],
+      ["withDocker",       "Docker"],
+      ["withTests",        "PHPUnit skeleton"],
+    ];
+
+    console.log(c.bold("  Features détectées dans le projet source :"));
+    for (const [key, label] of featureLabels) {
+      const on = Boolean(detected[key as keyof typeof detected]);
+      const icon = on ? c.green("✔") : c.dim("✘");
+      const reason = detected.reasons[key] ? c.dim(` — ${detected.reasons[key]}`) : "";
+      console.log(`    ${icon}  ${on ? label : c.dim(label)}${reason}`);
+    }
+    console.log("");
+
+    // ── Resolve OpenAPI path ──────────────────────────────────────────────────
+    const defaultOpenApiPath = path.join(sourcePath, "openapi.yaml");
+    const openApiPath = rawOptions.openapi
+      ? path.resolve(rawOptions.openapi)
+      : defaultOpenApiPath;
+
+    const outPath = path.join(baseOut, to);
+
+    const done = startTask(`Génération scaffold ${to}`);
+    const t0 = Date.now();
+
+    try {
+      const result = runConversion(
+        {
+          from,
+          to,
+          sourcePath,
+          outPath,
+          openApiPath,
+          mappingPath: rawOptions.mapping ? path.resolve(rawOptions.mapping) : undefined,
+          targetVersion: rawOptions.targetVersion,
+          extractIfMissing: true,
+          dryRun,
+          withSeeders:      detected.withSeeders,
+          withMiddleware:   detected.withMiddleware,
+          withMailer:       detected.withMailer,
+          withJobs:         detected.withJobs,
+          withAuth:         detected.withAuth && Boolean(rawOptions.mapping),
+          withRepositories: detected.withRepositories,
+          withCommands:     detected.withCommands,
+          withTranslations: detected.withTranslations,
+          withExtras:       detected.withExtras,
+          withDocker:       detected.withDocker,
+          withTests:        detected.withTests,
+        },
+        !dryRun && rawOptions.gitCommit !== false,
+        rawOptions.commit,
+      );
+
+      done("ok", formatDuration(Date.now() - t0));
+
+      if (result.warnings.length) {
+        for (const w of result.warnings) printWarning(w);
+      }
+
+      printTable([
+        ["Framework source", from],
+        ["Framework cible",  to],
+        ["Fichiers générés", result.generatedFiles.length],
+        ["Dossier de sortie", outPath],
+        ["Commit", result.committed ? (result.commitMessage ?? "oui") : "non"],
+        ["Avertissements", result.warnings.length > 0 ? c.yellow(String(result.warnings.length)) : c.green("0")],
+      ]);
+    } catch (err) {
+      done("err");
+      printError(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
     }
   });
 
