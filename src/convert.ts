@@ -6,6 +6,7 @@ import { runExtraction } from "./extract.js";
 import { resolveFramework } from "./framework.js";
 import { generateLaravelFromContract } from "./generators/laravel.js";
 import { generateSymfonyFromContract } from "./generators/symfony.js";
+import { loadMappingFile } from "./mapping.js";
 import { parseOpenApiToContract } from "./openapi.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
@@ -53,10 +54,11 @@ export function runConversion(
   ensureDir(options.outPath);
 
   const contract = parseOpenApiToContract(options.openApiPath);
+  const mapping = options.mappingPath ? loadMappingFile(options.mappingPath) : undefined;
   const generatedFiles =
     to === "laravel"
-      ? generateLaravelFromContract(contract, options.outPath)
-      : generateSymfonyFromContract(contract, options.outPath);
+      ? generateLaravelFromContract(contract, options.outPath, mapping)
+      : generateSymfonyFromContract(contract, options.outPath, mapping);
 
   const metadataPath = path.join(options.outPath, ".backendbridge.meta.json");
   const metadata = {
@@ -76,6 +78,7 @@ export function runConversion(
     to,
     openApiPath: options.openApiPath,
     outPath: options.outPath,
+    mappingPath: options.mappingPath,
     generatedFiles: generatedFiles.length,
   });
   generatedFiles.push(actionLogFile);

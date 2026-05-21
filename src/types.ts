@@ -20,6 +20,7 @@ export interface ConvertOptions {
   sourcePath: string;
   outPath: string;
   openApiPath: string;
+  mappingPath?: string;
   extractIfMissing?: boolean;
   extractOutPath?: string;
   targetVersion?: string;
