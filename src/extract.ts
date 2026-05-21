@@ -5,6 +5,7 @@ import { appendActionLog } from "./action-log.js";
 import { commitGeneratedFiles } from "./commit.js";
 import { resolveFramework } from "./framework.js";
 import { parsePhpFileForApiPlatform } from "./php-ast.js";
+import { extractLaravelFormRequests, extractSymfonyDtoSchemas, matchRequestToOperation } from "./schema-extractor.js";
 import type { SupportedFramework } from "./types.js";
 
 interface ExtractOptions {
@@ -21,6 +22,9 @@ interface ExtractEndpoint {
   method: string;
   path: string;
   operationId: string;
+  summary?: string;
+  tags?: string[];
+  pathParams?: string[];
 }
 
 export interface ExtractResult {
@@ -33,6 +37,18 @@ export interface ExtractResult {
 }
 
 const HTTP_METHODS = ["get", "post", "put", "patch", "delete", "head", "options"];
+
+// Laravel resource routes: method + relative path + operationId suffix
+const RESOURCE_ROUTES: Array<{ method: string; suffix: string; opSuffix: string; hasId: boolean }> = [
+  { method: "get",    suffix: "",          opSuffix: "index",   hasId: false },
+  { method: "post",   suffix: "",          opSuffix: "store",   hasId: false },
+  { method: "get",    suffix: "/{id}",     opSuffix: "show",    hasId: true  },
+  { method: "put",    suffix: "/{id}",     opSuffix: "update",  hasId: true  },
+  { method: "patch",  suffix: "/{id}",     opSuffix: "update",  hasId: true  },
+  { method: "delete", suffix: "/{id}",     opSuffix: "destroy", hasId: true  },
+];
+
+const API_RESOURCE_ROUTES = RESOURCE_ROUTES; // apiResource omits create/edit (web-only)
 
 function walkFiles(basePath: string, result: string[] = []): string[] {
   for (const entry of fs.readdirSync(basePath, { withFileTypes: true })) {
@@ -47,44 +63,98 @@ function walkFiles(basePath: string, result: string[] = []): string[] {
 }
 
 function normalizePath(inputPath: string): string {
-  if (inputPath.startsWith("/")) {
-    return inputPath;
-  }
-  return `/${inputPath}`;
+  return inputPath.startsWith("/") ? inputPath : `/${inputPath}`;
+}
+
+function pathParamsFrom(routePath: string): string[] {
+  return [...routePath.matchAll(/\{(\w+)\??}/g)].map((m) => m[1]);
+}
+
+function normalizePathParams(routePath: string): string {
+  // Laravel uses {param?} for optional — convert to {param} for OpenAPI
+  return routePath.replace(/\{(\w+)\?\}/g, "{$1}");
+}
+
+function tagFromPath(routePath: string, fallback: string): string {
+  const seg = routePath.split("/").filter(Boolean).find((s) => !s.startsWith("{"));
+  return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : fallback;
 }
 
 function uniqueByMethodPath(endpoints: ExtractEndpoint[]): ExtractEndpoint[] {
   const map = new Map<string, ExtractEndpoint>();
-  for (const endpoint of endpoints) {
-    map.set(`${endpoint.method}:${endpoint.path}`, endpoint);
+  for (const ep of endpoints) {
+    map.set(`${ep.method}:${ep.path}`, ep);
   }
   return [...map.values()];
 }
 
+// ─── Laravel ─────────────────────────────────────────────────────────────────
+
 function extractFromLaravel(sourcePath: string): ExtractEndpoint[] {
   const routesDir = path.join(sourcePath, "routes");
-  const candidates = [path.join(routesDir, "api.php"), path.join(routesDir, "web.php")];
+  const candidates = [
+    path.join(routesDir, "api.php"),
+    path.join(routesDir, "web.php"),
+  ];
   const endpoints: ExtractEndpoint[] = [];
 
   for (const filePath of candidates) {
-    if (!fs.existsSync(filePath)) {
-      continue;
-    }
-
+    if (!fs.existsSync(filePath)) continue;
     const content = fs.readFileSync(filePath, "utf8");
-    const routeRegex = /Route::(get|post|put|patch|delete|head|options)\(\s*['\"]([^'\"]+)['\"]/gi;
 
-    let match: RegExpExecArray | null;
-    while ((match = routeRegex.exec(content)) !== null) {
-      const method = match[1]?.toLowerCase();
-      const routePath = match[2];
-      if (!method || !routePath) {
-        continue;
-      }
+    // Standard method routes: Route::get('/path', ...)
+    const routeRegex = /Route::(get|post|put|patch|delete|head|options)\(\s*['\"]([^'\"]+)['\"](?:[^,)]*,\s*['\"]?([A-Za-z0-9_\\@:]+)['\"]?)?/gi;
+    let m: RegExpExecArray | null;
+    while ((m = routeRegex.exec(content)) !== null) {
+      const method = m[1].toLowerCase();
+      const rawPath = normalizePath(normalizePathParams(m[2]));
+      const controller = m[3];
+      const tag = tagFromPath(rawPath, "Api");
       endpoints.push({
         method,
-        path: normalizePath(routePath),
-        operationId: `${method}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+        path: rawPath,
+        operationId: `${method}_${rawPath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+        summary: controller ? `${method.toUpperCase()} ${rawPath}` : undefined,
+        tags: [tag],
+        pathParams: pathParamsFrom(rawPath),
+      });
+    }
+
+    // Route::resource('resource', Controller::class)
+    const resourceRegex = /Route::(?:api)?[Rr]esource\(\s*['\"]([^'\"]+)['\"](?:[^,)]*,\s*([A-Za-z0-9_\\]+)(?:::class)?)?/g;
+    while ((m = resourceRegex.exec(content)) !== null) {
+      const resourceName = m[1];
+      const basePath = normalizePath(resourceName);
+      const tag = tagFromPath(basePath, resourceName);
+      const isApi = content.slice(m.index, m.index + 20).toLowerCase().includes("apiresource");
+      const routes = isApi ? API_RESOURCE_ROUTES : RESOURCE_ROUTES;
+
+      for (const r of routes) {
+        const fullPath = `${basePath}${r.suffix}`;
+        endpoints.push({
+          method: r.method,
+          path: fullPath,
+          operationId: `${resourceName.replace(/\//g, "_")}_${r.opSuffix}`,
+          summary: `${r.opSuffix.charAt(0).toUpperCase() + r.opSuffix.slice(1)} ${tag}`,
+          tags: [tag],
+          pathParams: r.hasId ? ["id"] : [],
+        });
+      }
+    }
+
+    // Route::group / Route::prefix chaining — extract grouped routes
+    const groupedRegex = /->(?:prefix|group)\(\s*['\"]([^'\"]+)['\"][^;]*?Route::(get|post|put|patch|delete)\(\s*['\"]([^'\"]+)['\"](?:[^,)]*,\s*['\"]?([A-Za-z0-9_\\@:]+)['\"]?)?/gi;
+    while ((m = groupedRegex.exec(content)) !== null) {
+      const prefix = m[1];
+      const method = m[2].toLowerCase();
+      const rawPath = normalizePath(normalizePathParams(`${prefix}/${m[3]}`));
+      const tag = tagFromPath(rawPath, prefix);
+      endpoints.push({
+        method,
+        path: rawPath,
+        operationId: `${method}_${rawPath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+        tags: [tag],
+        pathParams: pathParamsFrom(rawPath),
       });
     }
   }
@@ -92,61 +162,71 @@ function extractFromLaravel(sourcePath: string): ExtractEndpoint[] {
   return uniqueByMethodPath(endpoints);
 }
 
+// ─── Symfony ─────────────────────────────────────────────────────────────────
+
+function controllerToTag(filePath: string): string {
+  const base = path.basename(filePath, ".php").replace(/Controller$/, "");
+  return base || "Api";
+}
 
 function extractFromSymfony(sourcePath: string): ExtractEndpoint[] {
   const controllersDir = path.join(sourcePath, "src", "Controller");
-  if (!fs.existsSync(controllersDir)) {
-    return [];
-  }
+  if (!fs.existsSync(controllersDir)) return [];
 
   const endpoints: ExtractEndpoint[] = [];
-  const phpFiles = walkFiles(controllersDir).filter((file) => file.endsWith(".php"));
+  const phpFiles = walkFiles(controllersDir).filter((f) => f.endsWith(".php"));
 
   for (const filePath of phpFiles) {
     const content = fs.readFileSync(filePath, "utf8");
+    const tag = controllerToTag(filePath);
 
+    // Class-level prefix: #[Route('/prefix')] placed directly before `class ClassName`
+    const classPrefixMatch = /#\[Route\(\s*['\"]([^'\"]+)['\"][^\)]*\)\]\s*(?:#\[[^\]]*\]\s*)*class\s+\w/ms.exec(content);
+    const classPrefix = classPrefixMatch ? classPrefixMatch[1].replace(/\/$/, "") : "";
+
+    // PHP 8 attribute routes: #[Route('/path', name: 'name', methods: ['GET'])]
     const attributeRegex =
       /#\[Route\(\s*['\"]([^'\"]+)['\"][^\)]*?(?:name:\s*['\"]([^'\"]+)['\"])?[^\)]*?(?:methods:\s*\[([^\]]+)\])?[^\)]*\)\]/g;
-
-    let attributeMatch: RegExpExecArray | null;
-    while ((attributeMatch = attributeRegex.exec(content)) !== null) {
-      const routePath = attributeMatch[1];
-      const routeName = attributeMatch[2];
-      const methodsRaw = attributeMatch[3] ?? "'GET'";
+    let m: RegExpExecArray | null;
+    while ((m = attributeRegex.exec(content)) !== null) {
+      const rawPath = normalizePath(normalizePathParams(classPrefix + m[1]));
+      const routeName = m[2];
+      const methodsRaw = m[3] ?? "'GET'";
       const methods = methodsRaw
         .split(",")
-        .map((value) => value.replace(/[\s'\"]/g, "").toLowerCase())
-        .filter((value) => HTTP_METHODS.includes(value));
+        .map((v) => v.replace(/[\s'"]/g, "").toLowerCase())
+        .filter((v) => HTTP_METHODS.includes(v));
 
       for (const method of methods.length ? methods : ["get"]) {
         endpoints.push({
           method,
-          path: normalizePath(routePath),
-          operationId:
-            routeName ?? `${method}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+          path: rawPath,
+          operationId: routeName ?? `${method}_${rawPath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+          tags: [tag],
+          pathParams: pathParamsFrom(rawPath),
         });
       }
     }
 
+    // Doctrine annotation routes: @Route('/path', name="name", methods={"GET"})
     const annotationRegex =
       /@Route\(\s*['\"]([^'\"]+)['\"][^\)]*?(?:name\s*=\s*['\"]([^'\"]+)['\"])?[^\)]*?(?:methods\s*=\s*\{([^\}]+)\})?[^\)]*\)/g;
-
-    let annotationMatch: RegExpExecArray | null;
-    while ((annotationMatch = annotationRegex.exec(content)) !== null) {
-      const routePath = annotationMatch[1];
-      const routeName = annotationMatch[2];
-      const methodsRaw = annotationMatch[3] ?? "\"GET\"";
+    while ((m = annotationRegex.exec(content)) !== null) {
+      const rawPath = normalizePath(normalizePathParams(classPrefix + m[1]));
+      const routeName = m[2];
+      const methodsRaw = m[3] ?? '"GET"';
       const methods = methodsRaw
         .split(",")
-        .map((value) => value.replace(/[\s'\"]/g, "").toLowerCase())
-        .filter((value) => HTTP_METHODS.includes(value));
+        .map((v) => v.replace(/[\s'"]/g, "").toLowerCase())
+        .filter((v) => HTTP_METHODS.includes(v));
 
       for (const method of methods.length ? methods : ["get"]) {
         endpoints.push({
           method,
-          path: normalizePath(routePath),
-          operationId:
-            routeName ?? `${method}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+          path: rawPath,
+          operationId: routeName ?? `${method}_${rawPath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+          tags: [tag],
+          pathParams: pathParamsFrom(rawPath),
         });
       }
     }
@@ -155,158 +235,94 @@ function extractFromSymfony(sourcePath: string): ExtractEndpoint[] {
   return uniqueByMethodPath(endpoints);
 }
 
+// ─── ApiPlatform ─────────────────────────────────────────────────────────────
+
 function extractApiPlatformFromSymfony(sourcePath: string, usePhpAst = false): ExtractEndpoint[] {
-  const scanRoots = [path.join(sourcePath, "src", "Entity"), path.join(sourcePath, "src", "ApiResource")];
+  const scanRoots = [
+    path.join(sourcePath, "src", "Entity"),
+    path.join(sourcePath, "src", "ApiResource"),
+  ];
   const endpoints: ExtractEndpoint[] = [];
 
+  const apiPlatformMethodMap: Record<string, string> = {
+    GetCollection: "get", Get: "get", Post: "post",
+    Put: "put", Patch: "patch", Delete: "delete",
+  };
+
   for (const scanRoot of scanRoots) {
-    if (!fs.existsSync(scanRoot)) {
-      continue;
-    }
+    if (!fs.existsSync(scanRoot)) continue;
 
-    const phpFiles = walkFiles(scanRoot).filter((file) => file.endsWith(".php"));
-    for (const filePath of phpFiles) {
+    for (const filePath of walkFiles(scanRoot).filter((f) => f.endsWith(".php"))) {
       const content = fs.readFileSync(filePath, "utf8");
-      if (!content.includes("ApiResource")) {
-        continue;
-      }
+      if (!content.includes("ApiResource")) continue;
 
-      // If requested and `php` is available, try using PHP-based AST parser for more robust detection
       if (usePhpAst) {
         try {
-          const phpResults = parsePhpFileForApiPlatform(filePath);
-          for (const r of phpResults) {
-            endpoints.push(r as ExtractEndpoint);
+          for (const r of parsePhpFileForApiPlatform(filePath)) {
+            endpoints.push({ ...(r as ExtractEndpoint), pathParams: pathParamsFrom(r.path) });
           }
           continue;
-        } catch (err) {
-          // fallback to regex-based detection
+        } catch {
+          // fallback
         }
       }
 
       const className = path.basename(filePath, ".php");
+      const tag = className;
       const basePath = `/${className.toLowerCase()}s`;
 
-      const uriTemplateRegex = /uriTemplate:\s*['\"]([^'\"]+)['\"]/g;
-      // match attribute usages like #[Get(...)] or namespaced attributes
-      const operationRegex = /#\[[^\]]*(GetCollection|Get|Post|Put|Patch|Delete)\s*\(([^\)]*)\)/g;
-      let hasExplicitOperation = false;
-
       const declaredPaths: string[] = [];
-      let uriMatch: RegExpExecArray | null;
-      while ((uriMatch = uriTemplateRegex.exec(content)) !== null) {
-        const tpl = uriMatch[1];
-        if (tpl) {
-          declaredPaths.push(normalizePath(tpl));
-        }
+      for (const [, tpl] of content.matchAll(/uriTemplate:\s*['\"]([^'\"]+)['\"]/) ?? []) {
+        declaredPaths.push(normalizePath(tpl));
       }
 
-      let operationMatch: RegExpExecArray | null;
-      while ((operationMatch = operationRegex.exec(content)) !== null) {
-        hasExplicitOperation = true;
-        const op = operationMatch[1];
-        const opArgs = operationMatch[2] ?? "";
-
-        let method = "get";
-        if (op === "GetCollection" || op === "Get") method = "get";
-        if (op === "Post") method = "post";
-        if (op === "Put") method = "put";
-        if (op === "Patch") method = "patch";
-        if (op === "Delete") method = "delete";
-
-        const uriFromOpMatch = /uriTemplate:\s*['\"]([^'\"]+)['\"]/.exec(opArgs);
-        const routePath = normalizePath(uriFromOpMatch?.[1] ?? declaredPaths[0] ?? basePath);
-
+      let hasExplicit = false;
+      const opRegex =
+        /#\[[^\]]*(GetCollection|Get|Post|Put|Patch|Delete)\s*\(([^\)]*)\)|new\s+(?:[A-Za-z0-9_\\\\]+\\)?(GetCollection|Get|Post|Put|Patch|Delete)\s*\(([^\)]*)\)/g;
+      let m: RegExpExecArray | null;
+      while ((m = opRegex.exec(content)) !== null) {
+        hasExplicit = true;
+        const op = (m[1] ?? m[3]) as string;
+        const args = m[2] ?? m[4] ?? "";
+        const method = apiPlatformMethodMap[op] ?? "get";
+        const uriMatch = /uriTemplate:\s*['\"]([^'\"]+)['\"]/.exec(args);
+        const routePath = normalizePath(uriMatch?.[1] ?? declaredPaths[0] ?? basePath);
         endpoints.push({
           method,
           path: routePath,
           operationId: `${method}_${className.toLowerCase()}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+          tags: [tag],
+          pathParams: pathParamsFrom(routePath),
         });
       }
 
-      // also detect usages like new Get(...), possibly inside itemOperations/collectionOperations arrays
-      const newOpRegex = /new\s+(?:[A-Za-z0-9_\\\\]+\\\\)?(GetCollection|Get|Post|Put|Patch|Delete)\s*\(([^\)]*)\)/g;
-      let newOpMatch: RegExpExecArray | null;
-      while ((newOpMatch = newOpRegex.exec(content)) !== null) {
-        hasExplicitOperation = true;
-        const op = newOpMatch[1];
-        const opArgs = newOpMatch[2] ?? "";
-
-        let method = "get";
-        if (op === "GetCollection" || op === "Get") method = "get";
-        if (op === "Post") method = "post";
-        if (op === "Put") method = "put";
-        if (op === "Patch") method = "patch";
-        if (op === "Delete") method = "delete";
-
-        const uriFromOpMatch = /uriTemplate:\s*['\"]([^'\"]+)['\"]/.exec(opArgs);
-        const routePath = normalizePath(uriFromOpMatch?.[1] ?? declaredPaths[0] ?? basePath);
-
-        endpoints.push({
-          method,
-          path: routePath,
-          operationId: `${method}_${className.toLowerCase()}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
-        });
-      }
-
-      // detect collectionOperations/itemOperations blocks with inline new Get/Post definitions
-      const opsBlockRegex = /(collectionOperations|itemOperations)\s*:\s*\[([^\]]+)\]/g;
-      let opsBlockMatch: RegExpExecArray | null;
-      while ((opsBlockMatch = opsBlockRegex.exec(content)) !== null) {
-        const block = opsBlockMatch[2];
-        let innerMatch: RegExpExecArray | null;
-        while ((innerMatch = newOpRegex.exec(block)) !== null) {
-          hasExplicitOperation = true;
-          const op = innerMatch[1];
-          const opArgs = innerMatch[2] ?? "";
-          let method = "get";
-          if (op === "GetCollection" || op === "Get") method = "get";
-          if (op === "Post") method = "post";
-          if (op === "Put") method = "put";
-          if (op === "Patch") method = "patch";
-          if (op === "Delete") method = "delete";
-
-          const uriFromOpMatch = /uriTemplate:\s*['\"]([^'\"]+)['\"]/.exec(opArgs);
-          const routePath = normalizePath(uriFromOpMatch?.[1] ?? declaredPaths[0] ?? basePath);
-
+      if (!hasExplicit) {
+        for (const [method, opSuffix, suffix] of [
+          ["get",    "collection", ""],
+          ["post",   "item",       ""],
+          ["get",    "item",       "/{id}"],
+          ["patch",  "item",       "/{id}"],
+          ["delete", "item",       "/{id}"],
+        ] as const) {
           endpoints.push({
             method,
-            path: routePath,
-            operationId: `${method}_${className.toLowerCase()}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+            path: `${basePath}${suffix}`,
+            operationId: `${method}_${className.toLowerCase()}_${opSuffix}`,
+            tags: [tag],
+            pathParams: suffix ? ["id"] : [],
           });
         }
-      }
-      if (!hasExplicitOperation) {
-        endpoints.push({
-          method: "get",
-          path: basePath,
-          operationId: `get_${className.toLowerCase()}_collection`,
-        });
-        endpoints.push({
-          method: "get",
-          path: `${basePath}/{id}`,
-          operationId: `get_${className.toLowerCase()}_item`,
-        });
-        endpoints.push({
-          method: "post",
-          path: basePath,
-          operationId: `post_${className.toLowerCase()}_item`,
-        });
-        endpoints.push({
-          method: "patch",
-          path: `${basePath}/{id}`,
-          operationId: `patch_${className.toLowerCase()}_item`,
-        });
-        endpoints.push({
-          method: "delete",
-          path: `${basePath}/{id}`,
-          operationId: `delete_${className.toLowerCase()}_item`,
-        });
       }
     }
   }
 
   return uniqueByMethodPath(endpoints);
+}
+
+// ─── OpenAPI document builder ─────────────────────────────────────────────────
+
+function needsRequestBody(method: string): boolean {
+  return ["post", "put", "patch"].includes(method);
 }
 
 function buildOpenApiDocument(
@@ -314,44 +330,108 @@ function buildOpenApiDocument(
   endpoints: ExtractEndpoint[],
   title: string,
   version: string,
+  schemas: {
+    laravelRequests?: ReturnType<typeof extractLaravelFormRequests>;
+    symfonyDtos?: ReturnType<typeof extractSymfonyDtoSchemas>;
+  } = {},
 ): Record<string, unknown> {
-  const paths: Record<string, Record<string, Record<string, unknown>>> = {};
+  const paths: Record<string, Record<string, unknown>> = {};
+  const componentSchemas: Record<string, unknown> = {};
 
-  for (const endpoint of endpoints) {
-    paths[endpoint.path] ??= {};
-    paths[endpoint.path][endpoint.method] = {
-      operationId: endpoint.operationId,
-      summary: `Extracted from ${framework}`,
-      tags: [framework],
-      responses: {
-        "200": {
-          description: "Success",
-        },
+  for (const ep of endpoints) {
+    paths[ep.path] ??= {};
+
+    // Path parameters
+    const parameters = (ep.pathParams ?? []).map((p) => ({
+      name: p,
+      in: "path",
+      required: true,
+      schema: { type: /id$/i.test(p) ? "integer" : "string" },
+      description: p,
+    }));
+
+    // Request body: match a FormRequest or DTO schema if available
+    let requestBody: unknown;
+    if (needsRequestBody(ep.method)) {
+      let bodySchema: unknown = { type: "object" };
+
+      if (framework === "laravel" && schemas.laravelRequests) {
+        const matched = matchRequestToOperation(ep.operationId, schemas.laravelRequests);
+        if (matched && Object.keys(matched.schema.properties).length > 0) {
+          const schemaName = matched.className;
+          componentSchemas[schemaName] = {
+            type: "object",
+            properties: matched.schema.properties,
+            required: matched.schema.required.length ? matched.schema.required : undefined,
+          };
+          bodySchema = { $ref: `#/components/schemas/${schemaName}` };
+        }
+      }
+
+      if (framework === "symfony" && schemas.symfonyDtos) {
+        const lower = ep.operationId.toLowerCase();
+        const matched = schemas.symfonyDtos.find((d) =>
+          lower.includes(d.className.toLowerCase().replace(/dto|request/i, ""))
+        );
+        if (matched && Object.keys(matched.schema.properties).length > 0) {
+          const schemaName = matched.className;
+          componentSchemas[schemaName] = {
+            type: "object",
+            properties: matched.schema.properties,
+            required: matched.schema.required.length ? matched.schema.required : undefined,
+          };
+          bodySchema = { $ref: `#/components/schemas/${schemaName}` };
+        }
+      }
+
+      requestBody = {
+        required: true,
+        content: { "application/json": { schema: bodySchema } },
+      };
+    }
+
+    // Responses
+    const responses: Record<string, unknown> = {
+      "200": {
+        description: ep.method === "post" ? "Created" : "Success",
+        content: { "application/json": { schema: { type: "object" } } },
       },
+    };
+    if (ep.method === "post") responses["201"] = responses["200"];
+    if (needsRequestBody(ep.method)) responses["422"] = { description: "Validation error" };
+    if (ep.pathParams?.length) responses["404"] = { description: "Not found" };
+
+    paths[ep.path][ep.method] = {
+      operationId: ep.operationId,
+      summary: ep.summary ?? `${ep.method.toUpperCase()} ${ep.path}`,
+      tags: ep.tags ?? [framework],
+      ...(parameters.length ? { parameters } : {}),
+      ...(requestBody ? { requestBody } : {}),
+      responses,
     };
   }
 
-  return {
+  const doc: Record<string, unknown> = {
     openapi: "3.0.3",
-    info: {
-      title,
-      version,
-    },
+    info: { title, version },
     paths,
   };
+
+  if (Object.keys(componentSchemas).length > 0) {
+    doc.components = { schemas: componentSchemas };
+  }
+
+  return doc;
 }
 
 function writeOpenApiFile(outPath: string, document: Record<string, unknown>): void {
-  const outDir = path.dirname(outPath);
-  fs.mkdirSync(outDir, { recursive: true });
-
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
   const ext = path.extname(outPath).toLowerCase();
   if (ext === ".yaml" || ext === ".yml") {
-    fs.writeFileSync(outPath, `${dump(document, { noRefs: true })}`, "utf8");
-    return;
+    fs.writeFileSync(outPath, dump(document, { noRefs: true }), "utf8");
+  } else {
+    fs.writeFileSync(outPath, JSON.stringify(document, null, 2) + "\n", "utf8");
   }
-
-  fs.writeFileSync(outPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
 }
 
 export function defaultExtractCommitMessage(from: SupportedFramework): string {
@@ -364,7 +444,8 @@ export function runExtraction(
   commitMessage?: string,
 ): ExtractResult {
   const from = resolveFramework(options.from, options.sourcePath);
-  const endpoints =
+
+  const rawEndpoints =
     from === "laravel"
       ? extractFromLaravel(options.sourcePath)
       : uniqueByMethodPath([
@@ -372,13 +453,17 @@ export function runExtraction(
           ...extractApiPlatformFromSymfony(options.sourcePath, Boolean(options.usePhpAst)),
         ]);
 
-  if (!endpoints.length) {
+  if (!rawEndpoints.length) {
     throw new Error("Aucun endpoint detecte. Verifie les routes et controllers du projet source.");
   }
 
+  // Extract validation schemas from source
+  const laravelRequests = from === "laravel" ? extractLaravelFormRequests(options.sourcePath) : [];
+  const symfonyDtos = from === "symfony" ? extractSymfonyDtoSchemas(options.sourcePath) : [];
+
   const title = options.title ?? `Extracted ${from} API`;
   const version = options.version ?? "1.0.0";
-  const doc = buildOpenApiDocument(from, endpoints, title, version);
+  const doc = buildOpenApiDocument(from, rawEndpoints, title, version, { laravelRequests, symfonyDtos });
 
   writeOpenApiFile(options.outPath, doc);
 
@@ -386,28 +471,16 @@ export function runExtraction(
   const actionLogFile = appendActionLog(options.sourcePath, "extract", {
     from,
     outPath: options.outPath,
-    endpoints: endpoints.length,
+    endpoints: rawEndpoints.length,
+    schemasExtracted: laravelRequests.length + symfonyDtos.length,
   });
   generatedFiles.push(actionLogFile);
 
   if (!options.dryRun && shouldCommit) {
     const message = commitMessage ?? defaultExtractCommitMessage(from);
     commitGeneratedFiles(generatedFiles, message, options.sourcePath);
-    return {
-      from,
-      outPath: options.outPath,
-      endpoints: endpoints.length,
-      generatedFiles,
-      committed: true,
-      commitMessage: message,
-    };
+    return { from, outPath: options.outPath, endpoints: rawEndpoints.length, generatedFiles, committed: true, commitMessage: message };
   }
 
-  return {
-    from,
-    outPath: options.outPath,
-    endpoints: endpoints.length,
-    generatedFiles,
-    committed: false,
-  };
+  return { from, outPath: options.outPath, endpoints: rawEndpoints.length, generatedFiles, committed: false };
 }
