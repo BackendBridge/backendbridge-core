@@ -10,6 +10,7 @@ import { loadMappingFile } from "./mapping.js";
 import { convertEnvFile } from "./env-converter.js";
 import { convertEntitiesToModels } from "./entity-model-converter.js";
 import { generateLaravelMigrationFromClasses, generateSqlFromClasses } from "./migration-generator.js";
+import { generatePhpUnitSkeleton } from "./phpunit-generator.js";
 import { parseOpenApiToContract } from "./openapi.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
@@ -109,6 +110,15 @@ export function runConversion(
     generatedFiles.push(...migrations);
   } catch (e) {
     // ignore
+  }
+
+  if (options.withTests) {
+    try {
+      const phpunitFiles = generatePhpUnitSkeleton(options.outPath);
+      generatedFiles.push(...phpunitFiles);
+    } catch (e) {
+      // ignore
+    }
   }
 
   if (!options.dryRun && shouldCommit) {

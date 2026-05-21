@@ -27,4 +27,5 @@ export interface ConvertOptions {
   dryRun: boolean;
   usePhpAst?: boolean;
   envOutName?: string;
+  withTests?: boolean;
 }

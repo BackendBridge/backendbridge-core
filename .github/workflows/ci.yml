@@ -79,7 +79,7 @@ jobs:
 
       - name: Run conversion (dry-run)
         run: |
-          node ./dist/cli.js convert --to laravel --openapi ./ci-openapi.json --source . --out ./ci-out --dry-run
+          node ./dist/cli.js convert --to laravel --openapi ./ci-openapi.json --source . --out ./ci-out --dry-run --with-tests
 
       - name: Apply generated SQL migrations to SQLite (if any)
         run: |
@@ -112,10 +112,12 @@ jobs:
           fi
 
       - name: Run phpunit on generated files (if any)
+        env:
+          BACKENDBRIDGE_GENERATED_ROOT: ./ci-out
         run: |
           echo "Running phpunit against ci-out (if tests present)"
           if [ -f tools/vendor/bin/phpunit ]; then
-            tools/vendor/bin/phpunit --colors=never
+            tools/vendor/bin/phpunit --configuration tools/phpunit.xml.dist --colors=never
           else
             echo "phpunit not installed; skipping"
           fi

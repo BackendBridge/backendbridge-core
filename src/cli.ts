@@ -34,6 +34,7 @@ program
     "Chemin de sortie OpenAPI lors d'une extraction auto (par defaut: --openapi)",
   )
   .option("--target-version <version>", "Version cible du framework")
+  .option("--with-tests", "Generer un squelette phpunit dans la sortie", false)
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler la conversion sans commit")
@@ -69,6 +70,7 @@ program
           envOutName: rawOptions.envOutName,
           targetVersion: rawOptions.targetVersion,
           dryRun: Boolean(rawOptions.dryRun),
+          withTests: Boolean(rawOptions.withTests),
         },
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
