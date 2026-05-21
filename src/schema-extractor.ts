@@ -229,13 +229,29 @@ export function extractSymfonyDtoSchemas(sourcePath: string): SymfonyDtoSchema[]
 
 // ─── Controller method → FormRequest hint ───────────────────────────────────
 
+const ACTION_PREFIXES = /^(store|create|update|edit|destroy|delete|show|index|list|get|fetch)/i;
+const METHOD_PREFIX = /^(post|put|patch|get|delete|head|options)_/i;
+
+function toSingular(word: string): string {
+  if (word.endsWith("ies")) return word.slice(0, -3) + "y";
+  if (word.endsWith("ses") || word.endsWith("xes") || word.endsWith("zes")) return word.slice(0, -2);
+  if (word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
+
 export function matchRequestToOperation(
   operationId: string,
   formRequests: LaravelFormRequest[],
 ): LaravelFormRequest | undefined {
-  const lower = operationId.toLowerCase();
+  // Extract resource from operationId: post_users → user, put_order_items → order
+  const withoutMethod = operationId.toLowerCase().replace(METHOD_PREFIX, "");
+  const opResource = toSingular(withoutMethod.split("_")[0] ?? withoutMethod);
+
   return formRequests.find((fr) => {
-    const cn = fr.className.toLowerCase().replace("request", "");
-    return lower.includes(cn) || cn.includes(lower.replace(/^(post|put|patch|get|delete)_/, "").split("_")[0] ?? "");
+    // StoreUserRequest → user, UpdateOrderRequest → order
+    const withoutRequest = fr.className.replace(/Request$/i, "");
+    const withoutAction = withoutRequest.replace(ACTION_PREFIXES, "");
+    const frResource = withoutAction.toLowerCase();
+    return frResource === opResource || frResource.startsWith(opResource) || opResource.startsWith(frResource);
   });
 }

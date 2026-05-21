@@ -59,7 +59,7 @@ foreach ($files as $file) {
 
         public function enterNode(Node $node) {
             if ($node instanceof Node\Stmt\Class_) {
-                $className = $node->namespacedName->toString() ?? ($node->name ? $node->name->toString() : basename($this->file));
+                $className = ($node->namespacedName ? $node->namespacedName->toString() : null) ?? ($node->name ? $node->name->toString() : basename($this->file));
                 $props = [];
                 foreach ($node->getProperties() as $p) {
                     foreach ($p->props as $pd) {
