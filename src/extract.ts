@@ -152,6 +152,94 @@ function extractFromSymfony(sourcePath: string): ExtractEndpoint[] {
   return uniqueByMethodPath(endpoints);
 }
 
+function extractApiPlatformFromSymfony(sourcePath: string): ExtractEndpoint[] {
+  const scanRoots = [path.join(sourcePath, "src", "Entity"), path.join(sourcePath, "src", "ApiResource")];
+  const endpoints: ExtractEndpoint[] = [];
+
+  for (const scanRoot of scanRoots) {
+    if (!fs.existsSync(scanRoot)) {
+      continue;
+    }
+
+    const phpFiles = walkFiles(scanRoot).filter((file) => file.endsWith(".php"));
+    for (const filePath of phpFiles) {
+      const content = fs.readFileSync(filePath, "utf8");
+      if (!content.includes("ApiResource")) {
+        continue;
+      }
+
+      const className = path.basename(filePath, ".php");
+      const basePath = `/${className.toLowerCase()}s`;
+
+      const uriTemplateRegex = /uriTemplate:\s*['\"]([^'\"]+)['\"]/g;
+      const operationRegex = /#\[(GetCollection|Get|Post|Put|Patch|Delete)\(([^\)]*)\)\]/g;
+      let hasExplicitOperation = false;
+
+      const declaredPaths: string[] = [];
+      let uriMatch: RegExpExecArray | null;
+      while ((uriMatch = uriTemplateRegex.exec(content)) !== null) {
+        const tpl = uriMatch[1];
+        if (tpl) {
+          declaredPaths.push(normalizePath(tpl));
+        }
+      }
+
+      let operationMatch: RegExpExecArray | null;
+      while ((operationMatch = operationRegex.exec(content)) !== null) {
+        hasExplicitOperation = true;
+        const op = operationMatch[1];
+        const opArgs = operationMatch[2] ?? "";
+
+        let method = "get";
+        if (op === "GetCollection" || op === "Get") method = "get";
+        if (op === "Post") method = "post";
+        if (op === "Put") method = "put";
+        if (op === "Patch") method = "patch";
+        if (op === "Delete") method = "delete";
+
+        const uriFromOpMatch = /uriTemplate:\s*['\"]([^'\"]+)['\"]/.exec(opArgs);
+        const routePath = normalizePath(uriFromOpMatch?.[1] ?? declaredPaths[0] ?? basePath);
+
+        endpoints.push({
+          method,
+          path: routePath,
+          operationId: `${method}_${className.toLowerCase()}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+        });
+      }
+
+      if (!hasExplicitOperation) {
+        endpoints.push({
+          method: "get",
+          path: basePath,
+          operationId: `get_${className.toLowerCase()}_collection`,
+        });
+        endpoints.push({
+          method: "get",
+          path: `${basePath}/{id}`,
+          operationId: `get_${className.toLowerCase()}_item`,
+        });
+        endpoints.push({
+          method: "post",
+          path: basePath,
+          operationId: `post_${className.toLowerCase()}_item`,
+        });
+        endpoints.push({
+          method: "patch",
+          path: `${basePath}/{id}`,
+          operationId: `patch_${className.toLowerCase()}_item`,
+        });
+        endpoints.push({
+          method: "delete",
+          path: `${basePath}/{id}`,
+          operationId: `delete_${className.toLowerCase()}_item`,
+        });
+      }
+    }
+  }
+
+  return uniqueByMethodPath(endpoints);
+}
+
 function buildOpenApiDocument(
   framework: SupportedFramework,
   endpoints: ExtractEndpoint[],
@@ -207,7 +295,13 @@ export function runExtraction(
   commitMessage?: string,
 ): ExtractResult {
   const from = resolveFramework(options.from, options.sourcePath);
-  const endpoints = from === "laravel" ? extractFromLaravel(options.sourcePath) : extractFromSymfony(options.sourcePath);
+  const endpoints =
+    from === "laravel"
+      ? extractFromLaravel(options.sourcePath)
+      : uniqueByMethodPath([
+          ...extractFromSymfony(options.sourcePath),
+          ...extractApiPlatformFromSymfony(options.sourcePath),
+        ]);
 
   if (!endpoints.length) {
     throw new Error("Aucun endpoint detecte. Verifie les routes et controllers du projet source.");
