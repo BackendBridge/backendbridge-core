@@ -11,6 +11,7 @@ import { runRelease } from "./release.js";
 import type { SupportedFramework } from "./types.js";
 import { applyMapping, applyMappingInteractive } from "./mapping-applier.js";
 import { convertSecurityConfig } from "./config-converter.js";
+import { c, startTask, printTable, printError, printWarning, printHeader, formatDuration } from "./ui.js";
 
 const program = new Command();
 
@@ -30,11 +31,8 @@ program
   .option("--out <path>", "Dossier de sortie de la conversion", "./generated")
   .option("--extract-if-missing", "Extraire automatiquement OpenAPI si le fichier n'existe pas")
   .option("--use-php-ast", "Utiliser un parseur PHP AST (requiert php) pour l'extraction ApiPlatform", false)
-  .option("--env-out-name <name>", "Nom du fichier .env généré dans le dossier de sortie (par défaut: .env pour Laravel, .env.local pour Symfony)")
-  .option(
-    "--extract-out <path>",
-    "Chemin de sortie OpenAPI lors d'une extraction auto (par defaut: --openapi)",
-  )
+  .option("--env-out-name <name>", "Nom du fichier .env généré dans le dossier de sortie")
+  .option("--extract-out <path>", "Chemin de sortie OpenAPI lors d'une extraction auto")
   .option("--target-version <version>", "Version cible du framework")
   .option("--with-tests", "Generer un squelette phpunit dans la sortie", false)
   .option("--commit <message>", "Message de commit conventionnel")
@@ -48,7 +46,6 @@ program
       if (!["symfony", "laravel"].includes(to)) {
         throw new Error("--to doit valoir symfony ou laravel");
       }
-
       if (!["auto", "symfony", "laravel"].includes(from)) {
         throw new Error("--from doit valoir auto, symfony ou laravel");
       }
@@ -57,6 +54,10 @@ program
       const outPath = path.resolve(rawOptions.out);
       const openApiPath = path.resolve(rawOptions.openapi);
       const mappingPath = rawOptions.mapping ? path.resolve(rawOptions.mapping) : undefined;
+
+      const label = from === "auto" ? `auto → ${to}` : `${from} → ${to}`;
+      const done = startTask(`Converting ${label}`);
+      const t0 = Date.now();
 
       const result = runConversion(
         {
@@ -78,27 +79,41 @@ program
         rawOptions.commit,
       );
 
-      console.log(`Conversion terminee: ${result.from} -> ${result.to}`);
-      console.log(`Fichiers generes: ${result.generatedFiles.length}`);
-      for (const file of result.generatedFiles) {
-        console.log(`- ${path.relative(process.cwd(), file)}`);
+      const elapsed = Date.now() - t0;
+      done("ok", formatDuration(elapsed));
+
+      const warningCount = result.warnings.length;
+      const tableRows: [string, string | number][] = [
+        ["Framework", `${result.from} → ${result.to}`],
+        ["Files generated", result.generatedFiles.length],
+        ["Warnings", warningCount === 0 ? c.green("0") : c.yellow(String(warningCount))],
+        ["Duration", formatDuration(elapsed)],
+      ];
+      if (result.committed) {
+        tableRows.push(["Commit", c.dim(result.commitMessage ?? "")]);
+      } else {
+        tableRows.push(["Commit", c.dim(rawOptions.dryRun ? "dry-run" : "skipped")]);
       }
 
-      if (result.warnings.length) {
-        console.warn(`\nAvertissements (${result.warnings.length}):`);
-        for (const w of result.warnings) {
-          console.warn(`  ⚠ ${w}`);
+      console.log("");
+      printTable(tableRows);
+
+      if (result.generatedFiles.length > 0) {
+        printHeader("Generated files");
+        for (const file of result.generatedFiles) {
+          console.log(`  ${c.dim("-")} ${path.relative(process.cwd(), file)}`);
         }
       }
 
-      if (result.committed) {
-        console.log(`\nCommit cree: ${result.commitMessage}`);
-      } else {
-        console.log("\nAucun commit cree (dry-run ou commit desactive).");
+      if (warningCount > 0) {
+        printHeader(`Warnings (${warningCount})`);
+        for (const w of result.warnings) {
+          printWarning(w);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
@@ -120,26 +135,24 @@ program
       const openApiPath = path.resolve(rawOptions.openapi);
       const from = rawOptions.from as "auto" | SupportedFramework;
 
+      const done = startTask("Exporting mapping");
+      const t0 = Date.now();
       const result = runMappingExport(
-        {
-          from,
-          sourcePath,
-          openApiPath,
-          outPath,
-          dryRun: Boolean(rawOptions.dryRun),
-        },
+        { from, sourcePath, openApiPath, outPath, dryRun: Boolean(rawOptions.dryRun) },
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
       );
+      done("ok", formatDuration(Date.now() - t0));
 
-      console.log(`Mapping exporte: ${path.relative(process.cwd(), result.outPath)}`);
-      console.log(`Rules: ${result.rules}`);
-      if (result.committed) {
-        console.log(`Commit cree: ${result.commitMessage}`);
-      }
+      console.log("");
+      printTable([
+        ["Output", path.relative(process.cwd(), result.outPath)],
+        ["Rules", result.rules],
+        ["Commit", result.committed ? c.green("yes") : c.dim("no")],
+      ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
@@ -159,6 +172,8 @@ program
       const mappingPath = path.resolve(rawOptions.mapping);
       const targetPath = path.resolve(rawOptions.target);
 
+      const done = startTask("Importing mapping");
+      const t0 = Date.now();
       const result = runMappingImport(
         sourcePath,
         mappingPath,
@@ -167,14 +182,16 @@ program
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
       );
+      done("ok", formatDuration(Date.now() - t0));
 
-      console.log(`Mapping importe: ${path.relative(process.cwd(), result.targetPath)}`);
-      if (result.committed) {
-        console.log(`Commit cree: ${result.commitMessage}`);
-      }
+      console.log("");
+      printTable([
+        ["Target", path.relative(process.cwd(), result.targetPath)],
+        ["Commit", result.committed ? c.green("yes") : c.dim("no")],
+      ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
@@ -189,7 +206,7 @@ program
       await runMappingEditor(mappingPath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
@@ -216,6 +233,8 @@ program
       const sourcePath = path.resolve(rawOptions.source);
       const outPath = path.resolve(rawOptions.out);
 
+      const done = startTask(`Extracting OpenAPI from ${from}`);
+      const t0 = Date.now();
       const result = runExtraction(
         {
           from,
@@ -228,19 +247,20 @@ program
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
       );
+      const elapsed = Date.now() - t0;
+      done("ok", formatDuration(elapsed));
 
-      console.log(`Extraction terminee: ${result.from}`);
-      console.log(`Endpoints detectes: ${result.endpoints}`);
-      console.log(`Contrat genere: ${path.relative(process.cwd(), result.outPath)}`);
-
-      if (result.committed) {
-        console.log(`Commit cree: ${result.commitMessage}`);
-      } else {
-        console.log("Aucun commit cree (dry-run ou commit desactive).");
-      }
+      console.log("");
+      printTable([
+        ["Framework", result.from],
+        ["Endpoints", result.endpoints],
+        ["Output", path.relative(process.cwd(), result.outPath)],
+        ["Duration", formatDuration(elapsed)],
+        ["Commit", result.committed ? c.green("yes") : c.dim(rawOptions.dryRun ? "dry-run" : "no")],
+      ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
@@ -254,15 +274,22 @@ program
   .action(async (rawOptions) => {
     try {
       const filePath = path.resolve(rawOptions.file);
+      const done = startTask("Running pipeline");
+      const t0 = Date.now();
       const result = runPipeline(filePath, Boolean(rawOptions.gitCommit), Boolean(rawOptions.dryRun));
+      done("ok", formatDuration(Date.now() - t0));
 
-      console.log(`Pipeline execute: ${result.actions} action(s)`);
-      for (const summary of result.summaries) {
-        console.log(`- ${summary}`);
+      console.log("");
+      printTable([["Actions", result.actions]]);
+      if (result.summaries.length > 0) {
+        printHeader("Steps");
+        for (const summary of result.summaries) {
+          console.log(`  ${c.dim("-")} ${summary}`);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
@@ -282,6 +309,8 @@ program
       const from = rawOptions.from as "auto" | SupportedFramework;
       const reportPath = rawOptions.report ? path.resolve(rawOptions.report) : undefined;
 
+      const done = startTask("Running doctor");
+      const t0 = Date.now();
       const result = runDoctor(
         sourcePath,
         from,
@@ -290,19 +319,34 @@ program
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
       );
+      done("ok", formatDuration(Date.now() - t0));
 
-      console.log(`Doctor framework: ${result.framework}`);
-      console.log(`ApiPlatform: ${result.apiPlatformDetected ? "yes" : "no"}`);
-      console.log(`Routes detectees: ${result.routesDetected}`);
-      for (const issue of result.issues) {
-        console.log(`- [${issue.level}] ${issue.code}: ${issue.message}`);
-      }
-      if (result.reportPath) {
-        console.log(`Rapport: ${path.relative(process.cwd(), result.reportPath)}`);
+      const errors = result.issues.filter((i) => i.level === "error").length;
+      const warnings = result.issues.filter((i) => i.level === "warning").length;
+
+      console.log("");
+      printTable([
+        ["Framework", result.framework],
+        ["ApiPlatform", result.apiPlatformDetected ? c.green("yes") : c.dim("no")],
+        ["Routes", result.routesDetected],
+        ["Errors", errors > 0 ? c.red(String(errors)) : c.green("0")],
+        ["Warnings", warnings > 0 ? c.yellow(String(warnings)) : c.green("0")],
+        ...(result.reportPath
+          ? ([["Report", path.relative(process.cwd(), result.reportPath)]] as [string, string][])
+          : []),
+      ]);
+
+      if (result.issues.length > 0) {
+        printHeader("Issues");
+        for (const issue of result.issues) {
+          const levelColor =
+            issue.level === "error" ? c.red : issue.level === "warning" ? c.yellow : c.cyan;
+          console.log(`  ${levelColor(`[${issue.level}]`)} ${c.bold(issue.code)}: ${issue.message}`);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
@@ -321,6 +365,8 @@ program
       const sourcePath = path.resolve(rawOptions.source);
       const changelogPath = path.resolve(rawOptions.changelog);
 
+      const done = startTask("Preparing release");
+      const t0 = Date.now();
       const result = runRelease({
         projectPath: sourcePath,
         bump: rawOptions.bump as "patch" | "minor" | "major" | "prerelease",
@@ -329,14 +375,18 @@ program
         publish: Boolean(rawOptions.publish),
         dryRun: Boolean(rawOptions.dryRun),
       });
+      done("ok", formatDuration(Date.now() - t0));
 
-      console.log(`Release: ${result.previousVersion} -> ${result.nextVersion}`);
-      console.log(`Changelog: ${path.relative(process.cwd(), result.changelogPath)}`);
-      console.log(`Commit/tag: ${result.committed ? "ok" : "dry-run"}`);
-      console.log(`Publish npm: ${result.published ? "ok" : "skip"}`);
+      console.log("");
+      printTable([
+        ["Version", `${c.dim(result.previousVersion)} → ${c.green(result.nextVersion)}`],
+        ["Changelog", path.relative(process.cwd(), result.changelogPath)],
+        ["Commit/tag", result.committed ? c.green("ok") : c.dim("dry-run")],
+        ["npm publish", result.published ? c.green("ok") : c.dim("skipped")],
+      ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
@@ -355,44 +405,61 @@ program
       const mappingPath = path.resolve(rawOptions.mapping);
       const targetPath = path.resolve(rawOptions.target);
       const framework = rawOptions.framework as "laravel" | "symfony" | "auto";
-
       const interactive = Boolean(rawOptions.interactive);
+
+      const done = startTask("Applying mapping");
+      const t0 = Date.now();
       let res;
       if (interactive) {
-        res = await applyMappingInteractive({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
+        res = await applyMappingInteractive(
+          { mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) },
+          Boolean(rawOptions.commit),
+        );
       } else {
-        // applyMapping may be synchronous or return a Promise
-        res = await applyMapping({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
+        res = applyMapping(
+          { mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) },
+          Boolean(rawOptions.commit),
+        );
       }
+      done("ok", formatDuration(Date.now() - t0));
 
-      console.log(`Applied ${res.applied} mapping rules.`);
-      if (res.generatedFiles && res.generatedFiles.length) {
-        console.log("Generated files:");
-        for (const f of res.generatedFiles) console.log(`- ${path.relative(process.cwd(), f)}`);
+      console.log("");
+      printTable([["Rules applied", res.applied]]);
+
+      if (res.generatedFiles && res.generatedFiles.length > 0) {
+        printHeader("Generated files");
+        for (const f of res.generatedFiles) {
+          console.log(`  ${c.dim("-")} ${path.relative(process.cwd(), f)}`);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
 
 program
-  .command('convert-config')
-  .description('Convertir un fichier de configuration (ex: security.yaml -> config/auth.php)')
-  .requiredOption('--in <path>', 'Fichier d entree (yaml/php)')
-  .requiredOption('--out <path>', 'Fichier de sortie')
-  .option('--from <framework>', 'Framework source: symfony|laravel', 'symfony')
+  .command("convert-config")
+  .description("Convertir un fichier de configuration (ex: security.yaml -> config/auth.php)")
+  .requiredOption("--in <path>", "Fichier d entree (yaml/php)")
+  .requiredOption("--out <path>", "Fichier de sortie")
+  .option("--from <framework>", "Framework source: symfony|laravel", "symfony")
   .action((rawOptions) => {
     try {
       const inPath = path.resolve(rawOptions.in);
       const outPath = path.resolve(rawOptions.out);
-      const from = rawOptions.from === 'laravel' ? 'laravel' : 'symfony';
-      const res = convertSecurityConfig(inPath, outPath, from as 'symfony' | 'laravel');
-      console.log(`Converted config -> ${res}`);
+      const from = rawOptions.from === "laravel" ? "laravel" : "symfony";
+
+      const done = startTask(`Converting config (${from})`);
+      const res = convertSecurityConfig(inPath, outPath, from as "symfony" | "laravel");
+      done("ok");
+
+      console.log("");
+      printTable([["Output", path.relative(process.cwd(), res)]]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`Erreur: ${message}`);
+      printError(message);
       process.exitCode = 1;
     }
   });
