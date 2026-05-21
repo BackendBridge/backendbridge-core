@@ -28,6 +28,7 @@ program
   .option("--out <path>", "Dossier de sortie de la conversion", "./generated")
   .option("--extract-if-missing", "Extraire automatiquement OpenAPI si le fichier n'existe pas")
   .option("--use-php-ast", "Utiliser un parseur PHP AST (requiert php) pour l'extraction ApiPlatform", false)
+  .option("--env-out-name <name>", "Nom du fichier .env généré dans le dossier de sortie (par défaut: .env pour Laravel, .env.local pour Symfony)")
   .option(
     "--extract-out <path>",
     "Chemin de sortie OpenAPI lors d'une extraction auto (par defaut: --openapi)",
@@ -36,7 +37,7 @@ program
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler la conversion sans commit")
-  .action((rawOptions) => {
+  .action(async (rawOptions) => {
     try {
       const to = rawOptions.to as SupportedFramework;
       const from = rawOptions.from as "auto" | SupportedFramework;
@@ -65,6 +66,7 @@ program
           extractIfMissing: Boolean(rawOptions.extractIfMissing),
           usePhpAst: Boolean(rawOptions.usePhpAst),
           extractOutPath: rawOptions.extractOut ? path.resolve(rawOptions.extractOut) : undefined,
+          envOutName: rawOptions.envOutName,
           targetVersion: rawOptions.targetVersion,
           dryRun: Boolean(rawOptions.dryRun),
         },
@@ -321,13 +323,20 @@ program
   .option("-f, --framework <framework>", "target framework: laravel|symfony|auto", "auto")
   .option("--dry-run", "do not write files or commit", false)
   .option("--commit", "commit generated files", false)
+  .option("--interactive", "ask interactive questions before applying rules", false)
   .action((rawOptions) => {
     try {
       const mappingPath = path.resolve(rawOptions.mapping);
       const targetPath = path.resolve(rawOptions.target);
       const framework = rawOptions.framework as "laravel" | "symfony" | "auto";
 
-      const res = applyMapping({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
+      const interactive = Boolean(rawOptions.interactive);
+      let res;
+      if (interactive) {
+        res = await applyMappingInteractive({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
+      } else {
+        res = applyMapping({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
+      }
 
       console.log(`Applied ${res.applied} mapping rules.`);
       if (res.generatedFiles && res.generatedFiles.length) {

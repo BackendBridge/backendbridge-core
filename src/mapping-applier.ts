@@ -185,3 +185,123 @@ export function applyMapping(
     committed: false,
   };
 }
+
+export async function applyMappingInteractive(
+  options: ApplyMappingOptions,
+  shouldCommit: boolean,
+  commitMessage?: string,
+): Promise<ApplyMappingResult> {
+  let mapping: MappingDocument;
+  try {
+    mapping = loadMappingFile(options.mappingPath) as MappingDocument;
+  } catch (err) {
+    const raw = fs.readFileSync(options.mappingPath, "utf8");
+    try {
+      mapping = JSON.parse(raw) as unknown as MappingDocument;
+    } catch (e) {
+      throw err;
+    }
+  }
+
+  const generatedFiles: string[] = [];
+  const framework = options.framework === "auto" ? mapping.framework ?? "mixed" : options.framework;
+
+  for (const [key, origRule] of Object.entries(mapping.rules)) {
+    const { prompt } = await import("enquirer");
+    const answer = await prompt([
+      {
+        type: "input",
+        name: "dto",
+        message: `DTO candidate for ${key}`,
+        initial: origRule.dto ?? "",
+      },
+      {
+        type: "input",
+        name: "validation",
+        message: `Validation for ${key} (JSON array or leave)`,
+        initial: JSON.stringify(origRule.validation ?? []),
+      },
+      {
+        type: "input",
+        name: "auth",
+        message: `Auth for ${key} (JSON array or leave)`,
+        initial: JSON.stringify(origRule.auth ?? []),
+      },
+      {
+        type: "confirm",
+        name: "apply",
+        message: `Apply this rule?`,
+        initial: true,
+      },
+    ] as any);
+
+    if (!answer.apply) continue;
+
+    let parsedValidation: any = origRule.validation ?? [];
+    try {
+      parsedValidation = JSON.parse(answer.validation);
+    } catch (e) {
+      // fallback to original
+    }
+
+    let parsedAuth: any = origRule.auth ?? [];
+    try {
+      parsedAuth = JSON.parse(answer.auth);
+    } catch (e) {
+      // fallback
+    }
+
+    const rule = { dto: answer.dto || origRule.dto, validation: parsedValidation, auth: parsedAuth } as any;
+
+    const fileName = key.replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 80);
+    if (framework === "laravel") {
+      const target = path.join(options.targetPath, "app", "Http", "Requests", `${fileName}Request.php`);
+      const content = makeLaravelRequestStub(rule.dto, rule);
+      if (!options.dryRun) fs.mkdirSync(path.dirname(target), { recursive: true });
+      if (!options.dryRun) fs.writeFileSync(target, content, "utf8");
+      generatedFiles.push(target);
+      if (Array.isArray(rule.auth) && rule.auth.length > 0) {
+        const authTarget = options.dryRun ? path.join(options.targetPath, "app", "Policies", `${fileName}Policy.php`) : generateLaravelPolicy(options.targetPath, fileName, rule.auth as string[]);
+        generatedFiles.push(authTarget);
+      }
+      continue;
+    }
+
+    const target = path.join(options.targetPath, "src", "Request", `${fileName}Request.php`);
+    const content = makeSymfonyRequestStub(rule.dto, rule);
+    if (!options.dryRun) fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (!options.dryRun) fs.writeFileSync(target, content, "utf8");
+    generatedFiles.push(target);
+    if (Array.isArray(rule.auth) && rule.auth.length > 0) {
+      const authTarget = options.dryRun ? path.join(options.targetPath, "src", "Security", `${fileName}Voter.php`) : generateSymfonyVoter(options.targetPath, fileName, rule.auth as string[]);
+      generatedFiles.push(authTarget);
+    }
+  }
+
+  let actionLog: string;
+  if (options.dryRun) {
+    actionLog = path.join(options.targetPath, ".backendbridge", "actions.log");
+  } else {
+    actionLog = appendActionLog(options.targetPath, "apply-mapping", {
+      mapping: options.mappingPath,
+      count: Object.keys(mapping.rules).length,
+    });
+  }
+  generatedFiles.push(actionLog);
+
+  if (!options.dryRun && shouldCommit) {
+    commitGeneratedFiles(generatedFiles, commitMessage ?? "feat(mapping): apply business mapping stubs", options.targetPath);
+    return {
+      applied: Object.keys(mapping.rules).length,
+      generatedFiles,
+      committed: true,
+      commitMessage: commitMessage ?? "feat(mapping): apply business mapping stubs",
+    };
+  }
+
+  return {
+    applied: Object.keys(mapping.rules).length,
+    generatedFiles,
+    committed: false,
+  };
+}

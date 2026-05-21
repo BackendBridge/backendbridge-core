@@ -7,6 +7,7 @@ import { resolveFramework } from "./framework.js";
 import { generateLaravelFromContract } from "./generators/laravel.js";
 import { generateSymfonyFromContract } from "./generators/symfony.js";
 import { loadMappingFile } from "./mapping.js";
+import { convertEnvFile } from "./env-converter.js";
 import { parseOpenApiToContract } from "./openapi.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
@@ -82,6 +83,16 @@ export function runConversion(
     generatedFiles: generatedFiles.length,
   });
   generatedFiles.push(actionLogFile);
+
+  // convert .env from source to target framework and write to outPath/.env.generated
+  try {
+    const envOut = convertEnvFile({ from, to, sourcePath: options.sourcePath, outPath: options.outPath, outFileName: options.envOutName });
+    if (envOut) {
+      generatedFiles.push(envOut);
+    }
+  } catch (e) {
+    // don't fail conversion on env conversion errors
+  }
 
   if (!options.dryRun && shouldCommit) {
     const message = commitMessage ?? defaultCommitMessage(from, to);

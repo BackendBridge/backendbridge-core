@@ -19,6 +19,9 @@ export function parsePhpFileForApiPlatform(filePath: string): Array<{ method: st
   const out = execFileSync("php", [scriptPath, filePath], { encoding: "utf8" });
   try {
     const parsed = JSON.parse(out);
+    if (parsed && parsed.error) {
+      throw new Error(`PHP AST script error: ${parsed.message || parsed.error}`);
+    }
     return parsed;
   } catch (err) {
     throw new Error("Failed to parse PHP AST output");

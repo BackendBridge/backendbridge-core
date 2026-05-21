@@ -8,10 +8,20 @@ import { parseOpenApiToContract } from "./openapi.js";
 import { runExtraction } from "./extract.js";
 import type { ApiContract, SupportedFramework } from "./types.js";
 
+const ValidationItem = z.union([
+  z.string(),
+  z.object({ field: z.string(), rules: z.array(z.string()).default([]) }),
+]);
+
+const AuthItem = z.union([
+  z.string(),
+  z.object({ role: z.string(), condition: z.string().optional() }),
+]);
+
 const MappingRuleSchema = z.object({
   dto: z.string().optional(),
-  validation: z.array(z.string()).default([]),
-  auth: z.array(z.string()).default([]),
+  validation: z.array(ValidationItem).default([]),
+  auth: z.array(AuthItem).default([]),
   notes: z.string().optional(),
 });
 
