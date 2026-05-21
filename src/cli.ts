@@ -14,6 +14,9 @@ import { convertSecurityConfig } from "./config-converter.js";
 import { prompt } from "enquirer";
 import { c, startTask, printTable, printError, printWarning, printHeader, formatDuration } from "./ui.js";
 import { generateDockerFiles } from "./docker-generator.js";
+import { checkSetup, installLaravelInstaller, getSymfonyCliInstallInstructions, formatSetupReport } from "./setup-checker.js";
+import { createLaravelProject, createSymfonyProject } from "./project-creator.js";
+import { runServers } from "./runner.js";
 
 const program = new Command();
 
@@ -38,6 +41,9 @@ program
   .option("--target-version <version>", "Version cible du framework")
   .option("--with-tests", "Generer un squelette phpunit dans la sortie", false)
   .option("--with-docker", "Generer Dockerfile + docker-compose.yml dans la sortie", false)
+  .option("--with-seeders", "Generer seeders, factories (Laravel) ou fixtures (Symfony)", false)
+  .option("--with-middleware", "Generer middleware auth/JWT/throttle/CORS", false)
+  .option("--with-mailer", "Generer config mailer + stubs Mailable/Symfony Email", false)
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler la conversion sans commit")
@@ -78,6 +84,9 @@ program
           dryRun: Boolean(rawOptions.dryRun),
           withTests: Boolean(rawOptions.withTests),
           withDocker: Boolean(rawOptions.withDocker),
+          withSeeders: Boolean(rawOptions.withSeeders),
+          withMiddleware: Boolean(rawOptions.withMiddleware),
+          withMailer: Boolean(rawOptions.withMailer),
         },
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
@@ -488,6 +497,174 @@ program
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       printError(message);
+      process.exitCode = 1;
+    }
+  });
+
+// ─── setup ────────────────────────────────────────────────────────────────────
+
+program
+  .command("setup")
+  .description("Vérifier et installer PHP, Composer, Laravel CLI, Symfony CLI")
+  .option("--install-laravel", "Installer laravel/installer via composer global require")
+  .action(async (rawOptions) => {
+    const done = startTask("Checking environment");
+    const status = checkSetup();
+    done("ok");
+
+    console.log("");
+    printHeader("Environment");
+    console.log(formatSetupReport(status));
+
+    if (rawOptions.installLaravel && !status.laravelInstaller.installed) {
+      console.log("");
+      const d = startTask("Installing laravel/installer");
+      const ok = installLaravelInstaller();
+      ok ? d("ok") : d("err");
+    }
+
+    if (!status.symfonyCli.installed) {
+      console.log(`\n${c.yellow("⚠")} Symfony CLI not found. Install with:\n  ${c.cyan(getSymfonyCliInstallInstructions())}`);
+    }
+
+    if (!status.php.installed) {
+      console.log(`\n${c.red("✗")} PHP not found. Install PHP 8.2+ before using BackendBridge.`);
+      process.exitCode = 1;
+    }
+  });
+
+// ─── create ───────────────────────────────────────────────────────────────────
+
+program
+  .command("create")
+  .description("Créer un nouveau projet Laravel ou Symfony vide")
+  .argument("<name>", "Nom du projet")
+  .option("--framework <fw>", "laravel | symfony", "laravel")
+  .option("--type <type>", "Pour Symfony: webapp | api | skeleton", "api")
+  .option("--out <dir>", "Répertoire parent de création", process.cwd())
+  .action(async (name: string, rawOptions) => {
+    const fw = rawOptions.framework as "laravel" | "symfony";
+    const outDir = path.resolve(rawOptions.out);
+
+    printHeader(`Creating ${fw} project: ${name}`);
+
+    const envDone = startTask("Checking prerequisites");
+    const status = checkSetup();
+    envDone(status.php.installed && status.composer.installed ? "ok" : "err");
+
+    if (!status.php.installed || !status.composer.installed) {
+      printError("PHP and Composer are required. Run: backendbridge setup");
+      process.exitCode = 1;
+      return;
+    }
+
+    try {
+      const done = startTask(`Scaffolding ${fw} project`);
+      const t0 = Date.now();
+      const result = fw === "laravel"
+        ? createLaravelProject(name, outDir)
+        : createSymfonyProject(name, outDir, rawOptions.type as "webapp" | "api" | "skeleton");
+      done("ok", formatDuration(Date.now() - t0));
+
+      console.log("");
+      printTable([
+        ["Framework", fw],
+        ["Project", name],
+        ["Path", result.projectPath],
+      ]);
+    } catch (err) {
+      printError(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+    }
+  });
+
+// ─── build ────────────────────────────────────────────────────────────────────
+
+program
+  .command("build")
+  .description("Générer le scaffold dans Laravel ET Symfony depuis un seul contrat OpenAPI")
+  .requiredOption("--openapi <path>", "Chemin du contrat OpenAPI (.yaml/.json)")
+  .option("--source <path>", "Dossier source du projet API", process.cwd())
+  .option("--out <path>", "Dossier racine de sortie", "./generated")
+  .option("--from <framework>", "Framework source: auto | symfony | laravel", "auto")
+  .option("--with-docker", "Générer Docker files dans chaque sortie", false)
+  .option("--with-seeders", "Générer seeders/factories", false)
+  .option("--with-middleware", "Générer middleware stubs", false)
+  .option("--with-mailer", "Générer config mailer + stubs", false)
+  .option("--dry-run", "Simuler sans écrire", false)
+  .action(async (rawOptions) => {
+    const openApiPath = path.resolve(rawOptions.openapi);
+    const sourcePath = path.resolve(rawOptions.source);
+    const baseOut = path.resolve(rawOptions.out);
+    const from = rawOptions.from as "auto" | SupportedFramework;
+
+    printHeader("BackendBridge Build — generating for both frameworks");
+
+    const sharedOpts = {
+      from,
+      sourcePath,
+      openApiPath,
+      dryRun: Boolean(rawOptions.dryRun),
+      withDocker: Boolean(rawOptions.withDocker),
+      withSeeders: Boolean(rawOptions.withSeeders),
+      withMiddleware: Boolean(rawOptions.withMiddleware),
+      withMailer: Boolean(rawOptions.withMailer),
+    };
+
+    const results: { framework: string; files: number; warnings: number }[] = [];
+
+    for (const fw of ["laravel", "symfony"] as SupportedFramework[]) {
+      const outPath = path.join(baseOut, fw);
+      const done = startTask(`Generating ${fw} scaffold`);
+      const t0 = Date.now();
+      try {
+        const result = runConversion(
+          { ...sharedOpts, to: fw, outPath },
+          false,
+        );
+        done("ok", formatDuration(Date.now() - t0));
+        results.push({ framework: fw, files: result.generatedFiles.length, warnings: result.warnings.length });
+        if (result.warnings.length) {
+          for (const w of result.warnings) printWarning(w);
+        }
+      } catch (err) {
+        done("err");
+        printError(`${fw}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (results.length) {
+      console.log("");
+      for (const r of results) {
+        printTable([
+          ["Framework", r.framework],
+          ["Files generated", r.files],
+          ["Warnings", r.warnings > 0 ? c.yellow(String(r.warnings)) : c.green("0")],
+        ]);
+        console.log("");
+      }
+    }
+  });
+
+// ─── run ──────────────────────────────────────────────────────────────────────
+
+program
+  .command("run")
+  .description("Lancer les serveurs Laravel et/ou Symfony en parallèle")
+  .option("--laravel <path>", "Chemin du projet Laravel")
+  .option("--symfony <path>", "Chemin du projet Symfony")
+  .option("--laravel-port <port>", "Port Laravel (défaut: 8000)", "8000")
+  .option("--symfony-port <port>", "Port Symfony (défaut: 8001)", "8001")
+  .action((rawOptions) => {
+    try {
+      runServers({
+        laravelPath: rawOptions.laravel ? path.resolve(rawOptions.laravel) : undefined,
+        symfonyPath: rawOptions.symfony ? path.resolve(rawOptions.symfony) : undefined,
+        laravelPort: parseInt(rawOptions.laravelPort, 10),
+        symfonyPort: parseInt(rawOptions.symfonyPort, 10),
+      });
+    } catch (err) {
+      printError(err instanceof Error ? err.message : String(err));
       process.exitCode = 1;
     }
   });
