@@ -79,6 +79,36 @@ backendbridge extract \
   --commit "feat(bridge): extract openapi from symfony api"
 ```
 
+## Pipeline d'actions
+
+Tu peux executer plusieurs actions avec commit par action via un fichier de plan.
+
+Exemple `bridge.pipeline.yaml`:
+
+```yaml
+version: 1
+actions:
+  - type: extract
+    from: auto
+    source: ./api-source
+    out: ./contracts/source-openapi.yaml
+    commit: "feat(bridge): extract source contract"
+
+  - type: convert
+    from: auto
+    to: laravel
+    source: ./api-source
+    openapi: ./contracts/source-openapi.yaml
+    out: ./generated/laravel
+    commit: "feat(bridge): convert source api to laravel"
+```
+
+Execution:
+
+```bash
+backendbridge run-plan --file ./bridge.pipeline.yaml
+```
+
 ## Conventions de commit
 
 Le message doit respecter le format Conventional Commits:
@@ -88,7 +118,7 @@ Le message doit respecter le format Conventional Commits:
 
 La validation est appliquee avant le commit auto.
 
-Chaque action CLI (`extract`, `convert`) ajoute egalement une trace dans `.backendbridge/actions.log`.
+Chaque action CLI (`extract`, `convert`, `run-plan`) ajoute egalement une trace dans `.backendbridge/actions.log`.
 
 ## Scripts
 
