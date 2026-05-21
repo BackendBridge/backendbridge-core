@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { Command } from "commander";
 import { runConversion } from "./convert.js";
@@ -679,6 +681,122 @@ program
         ]);
         console.log("");
       }
+    }
+  });
+
+// ─── diff ─────────────────────────────────────────────────────────────────────
+
+program
+  .command("diff")
+  .description("Prévisualise ce qui serait généré lors d'une migration sans écrire de fichiers")
+  .option("--from <framework>", "Framework source: symfony | laravel | auto", "auto")
+  .option("--to <framework>", "Framework cible: symfony | laravel")
+  .option("--source <path>", "Dossier source du projet", process.cwd())
+  .option("--openapi <path>", "Contrat OpenAPI (extrait si absent)")
+  .option("--existing <path>", "Dossier de la conversion précédente (pour comparer les fichiers modifiés)")
+  .action(async (rawOptions) => {
+    const sourcePath = path.resolve(rawOptions.source);
+
+    printHeader("BackendBridge Diff — preview avant migration");
+
+    let from: SupportedFramework;
+    try {
+      from = resolveFramework(rawOptions.from ?? "auto", sourcePath);
+    } catch {
+      printError("Impossible de détecter le framework source. Précise --from symfony|laravel.");
+      process.exitCode = 1;
+      return;
+    }
+
+    const to: SupportedFramework = (rawOptions.to as SupportedFramework) ?? (from === "laravel" ? "symfony" : "laravel");
+
+    if (from === to) {
+      printError(`Framework source et cible identiques (${from}).`);
+      process.exitCode = 1;
+      return;
+    }
+
+    // Detect features
+    const detected = detectFeatures(sourcePath, from);
+    const { parseOpenApiToContract } = await import("./openapi.js");
+    const { contractToIR } = await import("./ir.js");
+
+    // Extract contract
+    const tmpOut = fs.mkdtempSync(path.join(os.tmpdir(), "bb-diff-"));
+    const openApiPath = rawOptions.openapi
+      ? path.resolve(rawOptions.openapi)
+      : path.join(tmpOut, "openapi.yaml");
+
+    try {
+      if (!fs.existsSync(openApiPath)) {
+        runExtraction({ from, sourcePath, outPath: openApiPath, dryRun: false }, false);
+      }
+      const contract = parseOpenApiToContract(openApiPath);
+      const ir = contractToIR(contract, from);
+
+      // ── Summary ──────────────────────────────────────────────────────────────
+      console.log(c.bold(`\n  ${from} → ${to}\n`));
+
+      printTable([
+        ["Endpoints détectés", contract.endpoints.length],
+        ["Ressources",         ir.resources.map((r) => r.name).join(", ") || "—"],
+        ["Events inférés",     ir.events.length],
+        ["Commands inférées",  ir.commands.length],
+      ]);
+
+      // ── Files that would be generated ────────────────────────────────────────
+      console.log(c.bold("\n  Fichiers qui seraient générés :\n"));
+
+      const categories: Array<[string, string[], boolean]> = [
+        ["Controllers",    ir.resources.map((r) => `${to === "laravel" ? "app/Http/Controllers" : "src/Controller"}/${r.name}Controller.php`), true],
+        ["Routes",         [to === "laravel" ? "routes/api.php" : "src/Controller/ (attributes)"], true],
+        [to === "laravel" ? "FormRequests" : "DTOs",
+                           ir.resources.map((r) => to === "laravel" ? `app/Http/Requests/${r.name}Request.php` : `src/Dto/${r.name}Dto.php`), true],
+        ["Repositories",   ir.resources.map((r) => `${r.name}Repository.php`), detected.withRepositories],
+        ["Auth",           ir.resources.map((r) => to === "laravel" ? `app/Policies/${r.name}Policy.php` : `src/Security/${r.name}Voter.php`), detected.withAuth],
+        ["Services",       ["(depuis injection des controllers source)"], detected.withServices],
+        ["Commands",       ir.commands.map((c) => c.name + ".php"), detected.withCommands],
+        ["Translations",   [to === "laravel" ? "lang/en/*.php + lang/fr/*.php" : "translations/messages.en.yaml"], detected.withTranslations],
+        ["Jobs + Events",  ["Jobs/, Events/, Listeners/"], detected.withJobs],
+        ["Middleware",     ["Middleware/"], detected.withMiddleware],
+        ["Docker",         ["Dockerfile, docker-compose.yml"], detected.withDocker],
+      ];
+
+      for (const [label, files, active] of categories) {
+        const icon = active ? c.green("✔") : c.dim("✘");
+        const count = active ? c.cyan(`(${files.length} fichier${files.length > 1 ? "s" : ""})`) : "";
+        console.log(`    ${icon}  ${active ? label : c.dim(label)} ${count}`);
+        if (active && files.length <= 4) {
+          for (const f of files) console.log(`         ${c.dim(f)}`);
+        }
+      }
+
+      // ── Existing file comparison ──────────────────────────────────────────────
+      if (rawOptions.existing) {
+        const existingPath = path.resolve(rawOptions.existing);
+        if (fs.existsSync(existingPath)) {
+          const irFile = path.join(existingPath, ".backendbridge.ir.json");
+          if (fs.existsSync(irFile)) {
+            const prevIr = JSON.parse(fs.readFileSync(irFile, "utf8"));
+            const prevRoutes = new Set((prevIr.routes ?? []).map((r: { method: string; path: string }) => `${r.method}:${r.path}`));
+            const newRoutes = new Set(ir.routes.map((r) => `${r.method}:${r.path}`));
+            const added = [...newRoutes].filter((r) => !prevRoutes.has(r));
+            const removed = [...prevRoutes].filter((r) => !newRoutes.has(r as string));
+
+            if (added.length || removed.length) {
+              console.log(c.bold("\n  Changements par rapport à la conversion précédente :\n"));
+              for (const r of added)   console.log(`    ${c.green("+")} ${r}`);
+              for (const r of removed) console.log(`    ${c.red("-")} ${r}`);
+            } else {
+              console.log(c.green("\n  ✔ Aucun changement d'endpoint par rapport à la conversion précédente."));
+            }
+          }
+        }
+      }
+
+      console.log(c.dim(`\n  Lancez ${c.bold("backendbridge migrate")} pour générer ces fichiers.\n`));
+    } finally {
+      fs.rmSync(tmpOut, { recursive: true, force: true });
     }
   });
 

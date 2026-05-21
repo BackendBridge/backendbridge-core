@@ -5,7 +5,7 @@ import { dump, load as yamlLoad } from "js-yaml";
 import { appendActionLog } from "./action-log.js";
 import { commitGeneratedFiles } from "./commit.js";
 import { resolveFramework } from "./framework.js";
-import { parsePhpFileForApiPlatform } from "./php-ast.js";
+import { parsePhpFileForApiPlatform, parseControllersWithAst } from "./php-ast.js";
 import { extractLaravelFormRequests, extractSymfonyDtoSchemas, matchRequestToOperation } from "./schema-extractor.js";
 import type { SupportedFramework } from "./types.js";
 
@@ -580,14 +580,26 @@ export function runExtraction(
   // Use PHP AST when explicitly requested OR when php binary is available (better accuracy)
   const useAst = options.usePhpAst === true || (options.usePhpAst !== false && phpAvailable());
 
-  const rawEndpoints =
-    from === "laravel"
-      ? extractFromLaravel(options.sourcePath)
-      : uniqueByMethodPath([
-          ...extractFromSymfony(options.sourcePath),
-          ...extractFromSymfonyYaml(options.sourcePath),
-          ...extractApiPlatformFromSymfony(options.sourcePath, useAst),
-        ]);
+  let rawEndpoints: ExtractEndpoint[];
+  if (from === "laravel") {
+    // Try AST-based extraction first (more reliable), fall back to regex
+    const astEndpoints = useAst
+      ? parseControllersWithAst("laravel", path.join(options.sourcePath, "routes"))
+      : [];
+    rawEndpoints = astEndpoints.length > 0
+      ? astEndpoints
+      : extractFromLaravel(options.sourcePath);
+  } else {
+    // Symfony: use AST for #[Route] controllers + YAML routes + ApiPlatform
+    const astControllers = useAst
+      ? parseControllersWithAst("symfony", path.join(options.sourcePath, "src", "Controller"))
+      : [];
+    rawEndpoints = uniqueByMethodPath([
+      ...(astControllers.length > 0 ? astControllers : extractFromSymfony(options.sourcePath)),
+      ...extractFromSymfonyYaml(options.sourcePath),
+      ...extractApiPlatformFromSymfony(options.sourcePath, useAst),
+    ]);
+  }
 
   if (!rawEndpoints.length) {
     throw new Error("Aucun endpoint detecte. Verifie les routes et controllers du projet source.");

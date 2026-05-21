@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { parseApiPlatform as parseApiPlatformPhp } from "./php-scripts.generated.js";
+import { parseApiPlatform as parseApiPlatformPhp, parseControllers as parseControllersPhp } from "./php-scripts.generated.js";
 
 export function phpAvailable(): boolean {
   try {
@@ -23,6 +23,33 @@ function resolvePhpScript(name: string, embedded: string): string {
   const tmp = path.join(os.tmpdir(), `bb-${name}`);
   fs.writeFileSync(tmp, embedded, "utf8");
   return tmp;
+}
+
+export interface AstEndpoint {
+  method: string;
+  path: string;
+  operationId: string;
+  tags?: string[];
+  pathParams?: string[];
+}
+
+export function parseControllersWithAst(
+  framework: "symfony" | "laravel",
+  targetPath: string,
+): AstEndpoint[] {
+  if (!phpAvailable()) return [];
+  const scriptPath = resolvePhpScript("parse_controllers.php", parseControllersPhp);
+  try {
+    const out = execFileSync("php", [scriptPath, framework, targetPath], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    const parsed = JSON.parse(out);
+    if (parsed && parsed.error) return [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 export function parsePhpFileForApiPlatform(filePath: string): Array<{ method: string; path: string; operationId: string }> {

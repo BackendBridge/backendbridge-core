@@ -1,8 +1,25 @@
 # BackendBridge
 
-> **Convertis ton API Symfony en Laravel (ou l'inverse) en une seule commande.**
+> **Convert Symfony APIs to Laravel — and back — in minutes.**
 
-CLI Node.js + TypeScript qui analyse ton projet source, détecte automatiquement ce qui existe (repositories, auth, events, services, commandes, traductions…) et génère uniquement ce qui est pertinent dans le framework cible.
+```bash
+backendbridge migrate --from symfony --source ./my-app
+```
+
+```
+✔  Controllers + Routes
+✔  DTOs / FormRequests
+✔  Repositories
+✔  Auth (Policies / Voters)
+✔  Services stubs
+✔  Translations (en / fr)
+✔  Migrations (MySQL · PostgreSQL · SQLite)
+✔  Docker
+✔  PHPUnit skeleton
+```
+
+OpenAPI-driven backend migration toolkit for Symfony and Laravel.
+Real PHP AST parsing (nikic/PHP-Parser), versioned IR, full CI coverage.
 
 ---
 
@@ -215,6 +232,7 @@ backendbridge run-plan --file ./bridge.pipeline.yaml
 
 | Commande | Description |
 |----------|-------------|
+| `diff` | Prévisualise ce qui serait généré sans écrire de fichiers |
 | `setup` | Vérifie PHP, Composer, Laravel CLI, Symfony CLI |
 | `create` | Crée un nouveau projet Laravel ou Symfony |
 | `run` | Démarre Laravel et Symfony en parallèle |

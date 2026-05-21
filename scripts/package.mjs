@@ -25,7 +25,7 @@ function run(cmd, args, opts = {}) {
 // 0. Embed PHP tool scripts as TS constants so SEA binary works without the filesystem
 console.log("\n[0/4] Embedding PHP scripts...");
 const toolsDir = path.join(root, "tools");
-const phpScripts = ["parse_api_platform.php", "parse_php_classes.php"];
+const phpScripts = ["parse_api_platform.php", "parse_php_classes.php", "parse_controllers.php"];
 const embeds = phpScripts.map((name) => {
   const content = fs.readFileSync(path.join(toolsDir, name), "utf8").replace(/`/g, "\\`").replace(/\\/g, "\\\\");
   const key = name.replace(".php", "").replace(/_([a-z])/g, (_, c) => c.toUpperCase());

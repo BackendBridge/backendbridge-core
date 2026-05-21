@@ -25,6 +25,7 @@ import { generateSymfonyEventSubscribers, generateLaravelGuard, generateLaravelS
 import { generateLaravelCommands, generateSymfonyCommands } from "./generators/commands.js";
 import { generateLaravelTranslations, generateSymfonyTranslations } from "./generators/translation.js";
 import { toStudly } from "./utils.js";
+import { contractToIR } from "./ir.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
 function ensureDir(dirPath: string): void {
@@ -78,6 +79,12 @@ export function runConversion(
     to === "laravel"
       ? generateLaravelFromContract(contract, options.outPath, mapping)
       : generateSymfonyFromContract(contract, options.outPath, mapping);
+
+  // Save IR alongside generated code (can be reused without re-parsing)
+  const ir = contractToIR(contract, from);
+  const irPath = path.join(options.outPath, ".backendbridge.ir.json");
+  fs.writeFileSync(irPath, `${JSON.stringify(ir, null, 2)}\n`, "utf8");
+  generatedFiles.push(irPath);
 
   const metadataPath = path.join(options.outPath, ".backendbridge.meta.json");
   const metadata = {
