@@ -15,7 +15,7 @@ function isShowEndpoint(endpoint: EndpointContract): boolean {
 }
 
 function resourceName(operationId: string): string {
-  return toStudly(operationId.replace(/^(get|list|show|fetch|index)_?/i, "")) || toStudly(operationId);
+  return toStudly(operationId.replace(/^(create|update|delete|get|list|show|fetch|index)_?/i, "")) || toStudly(operationId);
 }
 
 // ─── Schema → Laravel validation rules ───────────────────────────────────────

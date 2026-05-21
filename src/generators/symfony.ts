@@ -15,7 +15,7 @@ function isShowEndpoint(endpoint: EndpointContract): boolean {
 }
 
 function entityName(operationId: string): string {
-  return toStudly(operationId.replace(/^(get|list|show|fetch|index)_?/i, "")) || toStudly(operationId);
+  return toStudly(operationId.replace(/^(create|update|delete|get|list|show|fetch|index)_?/i, "")) || toStudly(operationId);
 }
 
 // ─── Schema → Symfony Assert constraints ─────────────────────────────────────
@@ -183,7 +183,10 @@ function buildControllerBody(
     innerBody += `            // return $this->json(null, 204);\n`;
   }
 
-  if (hasFileUpload && !hasMultiUpload) {
+  const hasSingleFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.format === "binary",
+  );
+  if (hasSingleFileUpload) {
     innerBody += `            // Single upload : $file = $request->files->get('field'); $file->move($targetDir, $filename);\n`;
   }
   if (hasMultiUpload) {
