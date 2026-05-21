@@ -8,7 +8,8 @@
     "build": "tsup src/cli.ts --format esm --clean --out-dir dist",
     "dev": "tsx src/cli.ts",
     "lint": "tsc --noEmit",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "package": "node scripts/package.mjs"
   },
   "keywords": [
     "symfony",
@@ -22,7 +23,9 @@
   "license": "MIT",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "scripts",
+    "sea-config.json"
   ],
   "bin": {
     "backendbridge": "dist/cli.js"
@@ -36,6 +39,7 @@
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.9.1",
+    "postject": "^1.0.0-alpha.6",
     "tsup": "^8.5.1",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",

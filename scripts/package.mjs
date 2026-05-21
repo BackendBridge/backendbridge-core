@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+/**
+ * Builds a standalone BackendBridge binary using Node.js SEA.
+ * Usage: node scripts/package.mjs [--target linux|macos|win]
+ */
+import { execFileSync, execSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import os from "node:os";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const seaDir = path.join(root, "dist", "sea");
+const binDir = path.join(root, "binaries");
+
+const platform = process.platform; // linux, darwin, win32
+const binaryName = platform === "win32" ? "backendbridge.exe" : "backendbridge";
+const outBinary = path.join(binDir, binaryName);
+
+function run(cmd, args, opts = {}) {
+  console.log(`> ${cmd} ${args.join(" ")}`);
+  execFileSync(cmd, args, { stdio: "inherit", cwd: root, ...opts });
+}
+
+// 1. Build CJS bundle for SEA using esbuild (bundles all node_modules inline)
+console.log("\n[1/4] Building CJS bundle...");
+fs.mkdirSync(seaDir, { recursive: true });
+const cjsCjs = path.join(seaDir, "cli.cjs");
+run("npx", [
+  "esbuild", "src/cli.ts",
+  "--bundle",
+  "--platform=node",
+  "--format=cjs",
+  "--target=node20",
+  `--outfile=${cjsCjs}`,
+]);
+
+// 2. Generate SEA blob
+console.log("\n[2/4] Generating SEA blob...");
+run("node", ["--experimental-sea-config", "sea-config.json"]);
+
+// 3. Copy node binary
+console.log("\n[3/4] Copying node binary...");
+fs.mkdirSync(binDir, { recursive: true });
+const nodeBin = process.execPath;
+fs.copyFileSync(nodeBin, outBinary);
+if (platform !== "win32") {
+  fs.chmodSync(outBinary, 0o755);
+}
+
+// 4. Remove signature and inject blob
+console.log("\n[4/4] Injecting SEA blob...");
+if (platform === "darwin") {
+  try {
+    execSync(`codesign --remove-signature "${outBinary}"`, { stdio: "pipe" });
+  } catch {
+    // codesign may not be available in CI — continue
+  }
+}
+
+const blob = path.join(seaDir, "backendbridge.blob");
+run("npx", [
+  "postject",
+  outBinary,
+  "NODE_SEA_BLOB",
+  blob,
+  "--sentinel-fuse",
+  "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2",
+  ...(platform === "darwin" ? ["--macho-segment-name", "__NODE_SEA"] : []),
+]);
+
+if (platform === "darwin") {
+  try {
+    execSync(`codesign --sign - "${outBinary}"`, { stdio: "pipe" });
+  } catch {
+    // ad-hoc signing optional
+  }
+}
+
+console.log(`\nDone! Binary: ${outBinary}`);
+console.log(`Run: ${outBinary} --help`);
