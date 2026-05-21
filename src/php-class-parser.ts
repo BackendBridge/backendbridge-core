@@ -1,6 +1,58 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 
+export interface ParsedColumn {
+  type?: string;
+  length?: number;
+  nullable?: boolean;
+  default?: unknown;
+  unique?: boolean;
+  index?: boolean;
+}
+
+export interface ParsedIndex {
+  columns?: string[];
+  unique?: boolean;
+  name?: string;
+}
+
+export interface ParsedJoinColumn {
+  name?: string;
+  referencedColumnName?: string;
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+export interface ParsedRelationPivot {
+  primary?: string[];
+  indexes?: ParsedIndex[];
+  columns?: ParsedColumn[];
+  timestamps?: boolean;
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+export interface ParsedRelation {
+  type?: string;
+  target?: string;
+  joinColumn?: ParsedJoinColumn;
+  pivot?: ParsedRelationPivot;
+}
+
+export interface ParsedProperty {
+  name: string;
+  type?: string;
+  relation?: ParsedRelation;
+  column?: ParsedColumn;
+}
+
+export interface ParsedClass {
+  file: string;
+  class: string;
+  properties: ParsedProperty[];
+  indexes?: ParsedIndex[];
+}
+
 export function phpAvailable(): boolean {
   try {
     execFileSync("php", ["-v"], { stdio: "ignore" });
@@ -10,7 +62,7 @@ export function phpAvailable(): boolean {
   }
 }
 
-export function parsePhpClasses(filePath: string): Array<{ file: string; class: string; properties: Array<{ name: string; type?: string }> }> {
+export function parsePhpClasses(filePath: string): ParsedClass[] {
   if (!phpAvailable()) throw new Error("php not available");
   const scriptPath = new URL("../tools/parse_php_classes.php", import.meta.url).pathname;
   const out = execFileSync("php", [scriptPath, filePath], { encoding: "utf8" });

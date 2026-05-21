@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { parsePhpClasses } from "./php-class-parser.js";
+import { parsePhpClasses, type ParsedClass, type ParsedIndex, type ParsedProperty } from "./php-class-parser.js";
 
 function mapTypeToSql(type?: string): string {
   if (!type) return 'VARCHAR(255)';
@@ -23,7 +23,7 @@ function mapTypeToLaravelColumn(type?: string): string {
 }
 
 export function generateLaravelMigrationFromClasses(sourcePath: string, outDir: string, tablePrefix = ''): string[] {
-  const parsed = parsePhpClasses(sourcePath);
+  const parsed = parsePhpClasses(sourcePath) as ParsedClass[];
   const generated: string[] = [];
   for (const cls of parsed) {
     const className = cls.class.split('\\').pop() || 'Generated';
@@ -107,8 +107,8 @@ ${cls.properties.filter(p=>p.name!=='id').map(p=>{
       if (col.index) fkLines.push(`            $table->index('${p.name}');`);
       return line;
     }).join("\n")}
-  ${cls.indexes && cls.indexes.length ? '\n' + cls.indexes.map(idx=>{
-      const cols = (idx.columns||[]).map(c=>`'${c}'`).join(', ');
+  ${cls.indexes && cls.indexes.length ? '\n' + cls.indexes.map((idx: ParsedIndex)=>{
+      const cols = (idx.columns||[]).map((c: string)=>`'${c}'`).join(', ');
       if (idx.unique) return `            $table->unique([${cols}], '${idx.name || `uniq_${tableName}_${(idx.columns||[]).join('_')}`}');`;
       return `            $table->index([${cols}], '${idx.name || `idx_${tableName}_${(idx.columns||[]).join('_')}`}');`;
     }).join('\n') : ''}
@@ -149,8 +149,8 @@ ${cls.properties.filter(p=>p.name!=='id').map(p=>{
       }
       const pivotFKs: string[] = [];
       // pivot primary key support (custom or default composite)
-      const pivotPrimary = pivotOptions.primary || [`${source}_id`, `${target}_id`];
-      pivotFKs.push(`        $table->primary([${pivotPrimary.map(c=>`'${c}'`).join(',')}]);`);
+        const pivotPrimary = pivotOptions.primary || [`${source}_id`, `${target}_id`];
+      pivotFKs.push(`        $table->primary([${pivotPrimary.map((c: string)=>`'${c}'`).join(',')}]);`);
       // pivot foreign keys with optional actions
       const pivotOnDelete = pivotOptions.onDelete;
       const pivotOnUpdate = pivotOptions.onUpdate;
@@ -199,7 +199,7 @@ ${pivotFKs.join('\n')}
 }
 
 export function generateSqlFromClasses(sourcePath: string, outDir: string): string[] {
-  const parsed = parsePhpClasses(sourcePath);
+  const parsed = parsePhpClasses(sourcePath) as ParsedClass[];
   const generated: string[] = [];
   for (const cls of parsed) {
     const className = cls.class.split('\\').pop() || 'Generated';
@@ -252,8 +252,56 @@ export function generateSqlFromClasses(sourcePath: string, outDir: string): stri
       if (p.relation && p.relation.type && p.relation.type.toLowerCase() === 'manytomany') {
         const source = className.toLowerCase();
         const target = p.relation.target ? p.relation.target.split('\\').pop().toLowerCase() : p.name.replace(/s$/, '');
-        const pivot = [source, target].sort().join('_');
-        const pivotSql = `CREATE TABLE ${pivot} (${source}_id INT, ${target}_id INT, FOREIGN KEY (${source}_id) REFERENCES ${source}s(id), FOREIGN KEY (${target}_id) REFERENCES ${target}s(id));`;
+        const pivotOptions = p.relation.pivot || {};
+        const extraCols = pivotOptions.columns || [];
+        const timestamps = pivotOptions.timestamps !== false;
+        const pivot = [source, target].map((value) => value.replace(/s$/, '')).sort().join('_');
+        const pivotColumns: string[] = [
+          `${source}_id INT`,
+          `${target}_id INT`,
+        ];
+
+        for (const c of extraCols) {
+          const sqlType = mapTypeToSql(c.type);
+          const nullable = c.nullable ? 'NULL' : 'NOT NULL';
+          const defaultVal = c.default !== undefined ? ` DEFAULT '${c.default}'` : '';
+          pivotColumns.push(`${c.name} ${sqlType} ${nullable}${defaultVal}`);
+        }
+
+        if (timestamps) {
+          pivotColumns.push('created_at DATETIME NULL', 'updated_at DATETIME NULL');
+        }
+
+        const pivotConstraints: string[] = [
+          `FOREIGN KEY (${source}_id) REFERENCES ${source}s(id)`,
+          `FOREIGN KEY (${target}_id) REFERENCES ${target}s(id)`,
+        ];
+
+        const pivotOnDelete = pivotOptions.onDelete;
+        const pivotOnUpdate = pivotOptions.onUpdate;
+        if (pivotOnDelete) {
+          pivotConstraints[0] += ` ON DELETE ${pivotOnDelete.toUpperCase()}`;
+          pivotConstraints[1] += ` ON DELETE ${pivotOnDelete.toUpperCase()}`;
+        }
+        if (pivotOnUpdate) {
+          pivotConstraints[0] += ` ON UPDATE ${pivotOnUpdate.toUpperCase()}`;
+          pivotConstraints[1] += ` ON UPDATE ${pivotOnUpdate.toUpperCase()}`;
+        }
+
+        const pivotPrimary = pivotOptions.primary || [`${source}_id`, `${target}_id`];
+        pivotColumns.push(`PRIMARY KEY (${pivotPrimary.join(', ')})`);
+
+        const pivotIndexes = pivotOptions.indexes || [];
+        for (const idx of pivotIndexes) {
+          const colsList = (idx.columns || []).join(', ');
+          if (idx.unique) {
+            pivotConstraints.push(`UNIQUE (${colsList})`);
+          } else {
+            pivotConstraints.push(`INDEX (${colsList})`);
+          }
+        }
+
+        const pivotSql = `CREATE TABLE ${pivot} (${[...pivotColumns, ...pivotConstraints].join(', ')});`;
         const outPivot = path.join(outDir, `${pivot}.sql`);
         fs.writeFileSync(outPivot, pivotSql, 'utf8');
         generated.push(outPivot);
