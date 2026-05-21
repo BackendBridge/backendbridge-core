@@ -1,8 +1,16 @@
 {
   "name": "backendbridge",
   "version": "0.2.0",
-  "description": "CLI de conversion API Symfony <-> Laravel",
+  "description": "Convert Symfony APIs to Laravel — and back — in minutes. OpenAPI-driven CLI with real PHP AST parsing.",
   "main": "dist/cli.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BackendBridge/backendbridge-core.git"
+  },
+  "homepage": "https://github.com/BackendBridge/backendbridge-core#readme",
+  "bugs": {
+    "url": "https://github.com/BackendBridge/backendbridge-core/issues"
+  },
   "scripts": {
     "test": "vitest run",
     "build": "tsup src/cli.ts --format esm --clean --out-dir dist",
@@ -14,10 +22,15 @@
   "keywords": [
     "symfony",
     "laravel",
+    "php",
     "api",
     "cli",
     "openapi",
-    "migration"
+    "migration",
+    "code-generator",
+    "ast",
+    "backend",
+    "converter"
   ],
   "author": "Ronaldo AWADEME <ronaldo.awademe@epitech.eu>",
   "license": "MIT",
