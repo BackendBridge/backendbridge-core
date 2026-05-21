@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { execFileSync } from "node:child_process";
 import type { ApiContract } from "../src/types.js";
 import { generateLaravelFromContract } from "../src/generators/laravel.js";
 import { generateSymfonyFromContract } from "../src/generators/symfony.js";
@@ -441,5 +442,85 @@ describe("Mailer generator — Symfony", () => {
     expect(mailerService).toBeTruthy();
     const content = fs.readFileSync(mailerService!, "utf8");
     expect(content).toContain("MailerInterface");
+  });
+});
+
+// ─── PHP lint ─────────────────────────────────────────────────────────────────
+
+function phpLint(files: string[]): void {
+  const phpFiles = files.filter((f) => f.endsWith(".php"));
+  for (const file of phpFiles) {
+    try {
+      execFileSync("php", ["-l", file], { stdio: "pipe" });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`PHP lint failed for ${path.basename(file)}: ${msg}`);
+    }
+  }
+}
+
+describe("PHP lint — generated files", () => {
+  let tmp: string;
+  beforeEach(() => { tmp = tmpDir(); });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  it("Laravel controllers, FormRequests, JsonResources pass php -l", () => {
+    const files = generateLaravelFromContract(blogContract, tmp);
+    phpLint(files);
+  });
+
+  it("Laravel upload controller passes php -l", () => {
+    const files = generateLaravelFromContract(uploadContract, tmp);
+    phpLint(files);
+  });
+
+  it("Symfony controllers and DTOs pass php -l", () => {
+    const files = generateSymfonyFromContract(blogContract, tmp);
+    phpLint(files);
+  });
+
+  it("Symfony upload controller passes php -l", () => {
+    const files = generateSymfonyFromContract(uploadContract, tmp);
+    phpLint(files);
+  });
+
+  it("Laravel Jobs/Events/Notifications pass php -l", () => {
+    const files = generateLaravelJobsEventsNotifications(blogContract, tmp);
+    phpLint(files);
+  });
+
+  it("Symfony Messages/Handlers/Events pass php -l", () => {
+    const files = generateSymfonyJobsEventsNotifications(blogContract, tmp);
+    phpLint(files);
+  });
+
+  it("Laravel Seeders/Factories pass php -l", () => {
+    const files = generateLaravelSeedersAndFactories(blogContract, tmp);
+    phpLint(files);
+  });
+
+  it("Symfony Fixtures pass php -l", () => {
+    const files = generateSymfonyFixtures(blogContract, tmp);
+    phpLint(files);
+  });
+
+  it("Laravel Middleware passes php -l", () => {
+    const files = generateLaravelMiddleware(tmp);
+    phpLint(files);
+  });
+
+  it("Symfony Middleware passes php -l", () => {
+    const files = generateSymfonyMiddleware(tmp);
+    phpLint(files);
+  });
+
+  it("Laravel Mailer passes php -l", () => {
+    const files = generateLaravelMailer(tmp);
+    phpLint(files);
+  });
+
+  it("Symfony Mailer passes php -l", () => {
+    const files = generateSymfonyMailer(tmp);
+    phpLint(files);
   });
 });
