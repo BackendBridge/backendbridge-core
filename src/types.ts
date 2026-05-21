@@ -56,4 +56,5 @@ export interface ConvertOptions {
   usePhpAst?: boolean;
   envOutName?: string;
   withTests?: boolean;
+  withDocker?: boolean;
 }

@@ -12,6 +12,7 @@ import { convertEntitiesToModels } from "./entity-model-converter.js";
 import { generateLaravelMigrationFromClasses, generateSqlFromClasses } from "./migration-generator.js";
 import { generatePhpUnitSkeleton } from "./phpunit-generator.js";
 import { parseOpenApiToContract } from "./openapi.js";
+import { generateDockerFiles } from "./docker-generator.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
 function ensureDir(dirPath: string): void {
@@ -25,6 +26,7 @@ export interface ConvertResult {
   committed: boolean;
   commitMessage?: string;
   warnings: string[];
+  dockerized: boolean;
 }
 
 export function runConversion(
@@ -126,11 +128,23 @@ export function runConversion(
     }
   }
 
+  // Docker files
+  let dockerized = false;
+  if (options.withDocker) {
+    try {
+      const dockerFiles = generateDockerFiles(to, options.outPath);
+      generatedFiles.push(...dockerFiles.files);
+      dockerized = true;
+    } catch (e) {
+      warnings.push(`[docker] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   if (!options.dryRun && shouldCommit) {
     const message = commitMessage ?? defaultCommitMessage(from, to);
     commitGeneratedFiles(generatedFiles, message, options.sourcePath);
-    return { from, to, generatedFiles, committed: true, commitMessage: message, warnings };
+    return { from, to, generatedFiles, committed: true, commitMessage: message, warnings, dockerized };
   }
 
-  return { from, to, generatedFiles, committed: false, warnings };
+  return { from, to, generatedFiles, committed: false, warnings, dockerized };
 }

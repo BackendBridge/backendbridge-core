@@ -11,7 +11,9 @@ import { runRelease } from "./release.js";
 import type { SupportedFramework } from "./types.js";
 import { applyMapping, applyMappingInteractive } from "./mapping-applier.js";
 import { convertSecurityConfig } from "./config-converter.js";
+import { prompt } from "enquirer";
 import { c, startTask, printTable, printError, printWarning, printHeader, formatDuration } from "./ui.js";
+import { generateDockerFiles } from "./docker-generator.js";
 
 const program = new Command();
 
@@ -35,6 +37,7 @@ program
   .option("--extract-out <path>", "Chemin de sortie OpenAPI lors d'une extraction auto")
   .option("--target-version <version>", "Version cible du framework")
   .option("--with-tests", "Generer un squelette phpunit dans la sortie", false)
+  .option("--with-docker", "Generer Dockerfile + docker-compose.yml dans la sortie", false)
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler la conversion sans commit")
@@ -74,6 +77,7 @@ program
           targetVersion: rawOptions.targetVersion,
           dryRun: Boolean(rawOptions.dryRun),
           withTests: Boolean(rawOptions.withTests),
+          withDocker: Boolean(rawOptions.withDocker),
         },
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
@@ -82,10 +86,34 @@ program
       const elapsed = Date.now() - t0;
       done("ok", formatDuration(elapsed));
 
+      // If --with-docker was not explicitly passed and we're in a TTY, ask interactively.
+      let dockerized = result.dockerized;
+      if (!rawOptions.withDocker && !dockerized && process.stdout.isTTY) {
+        const answer = await prompt<{ docker: boolean }>({
+          type: "confirm",
+          name: "docker",
+          message: "Générer les fichiers Docker (Dockerfile + docker-compose.yml) ?",
+          initial: false,
+        });
+        if (answer.docker) {
+          const dockerDone = startTask("Generating Docker files");
+          try {
+            const dockerResult = generateDockerFiles(to, outPath);
+            dockerDone("ok");
+            result.generatedFiles.push(...dockerResult.files);
+            dockerized = true;
+          } catch (e) {
+            dockerDone("err");
+            printWarning(`Docker: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+      }
+
       const warningCount = result.warnings.length;
       const tableRows: [string, string | number][] = [
         ["Framework", `${result.from} → ${result.to}`],
         ["Files generated", result.generatedFiles.length],
+        ["Docker", dockerized ? c.green("yes") : c.dim("no")],
         ["Warnings", warningCount === 0 ? c.green("0") : c.yellow(String(warningCount))],
         ["Duration", formatDuration(elapsed)],
       ];
