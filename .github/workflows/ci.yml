@@ -218,7 +218,7 @@ jobs:
         run: |
           for f in $(find ./ci-out -type f -name "*.sql" 2>/dev/null || true); do
             echo "Applying $f to MySQL";
-            mysql -h 127.0.0.1 -P 3306 -u root < "$f" || true
+            mysql -h 127.0.0.1 -P 3306 -u root < "$f"
           done
 
       - name: Apply SQL on Postgres
@@ -229,5 +229,5 @@ jobs:
           psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE ci;" || true
           for f in $(find ./ci-out -type f -name "*.sql" 2>/dev/null || true); do
             echo "Applying $f to Postgres";
-            psql -h 127.0.0.1 -U postgres -d ci -f "$f" || true
+            psql -h 127.0.0.1 -U postgres -d ci -f "$f"
           done

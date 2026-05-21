@@ -83,7 +83,18 @@ foreach ($files as $file) {
                                         if (preg_match('/targetEntity\s*=\s*"?\\?([A-Za-z0-9_\\\\]+)"?/', $args, $t)) $target = $t[1];
                                         if (preg_match('/mappedBy\s*=\s*"?([A-Za-z0-9_]+)"?/', $args, $m2)) $mappedBy = $m2[1];
                                         if (preg_match('/inversedBy\s*=\s*"?([A-Za-z0-9_]+)"?/', $args, $m3)) $inversedBy = $m3[1];
-                                        $relation = ['type'=>$relType, 'target'=>$target, 'mappedBy'=>$mappedBy, 'inversedBy'=>$inversedBy];
+                                        $cascade = null; $orphanRemoval = null;
+                                        if (preg_match('/cascade\s*=\s*\{([^}]*)\}/', $args, $c)) {
+                                            $items = array_map('trim', explode(',', $c[1]));
+                                            $items = array_map(function($s){ return trim($s, " \"'"); }, $items);
+                                            $cascade = $items;
+                                        } else if (preg_match('/cascade\s*=\s*(\w+)/', $args, $c2)) {
+                                            $cascade = [trim($c2[1], " \"'")];
+                                        }
+                                        if (preg_match('/orphanRemoval\s*=\s*(true|false)/i', $args, $or)) {
+                                            $orphanRemoval = strtolower($or[1]) === 'true';
+                                        }
+                                        $relation = ['type'=>$relType, 'target'=>$target, 'mappedBy'=>$mappedBy, 'inversedBy'=>$inversedBy, 'cascade'=>$cascade, 'orphanRemoval'=>$orphanRemoval];
                                     }
                                     // detect Column metadata
                                     if (preg_match('/@ORM\\\\Column\(([^)]*)\)/', $doc->getText(), $cm)) {
