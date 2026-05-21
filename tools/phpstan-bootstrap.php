@@ -20,27 +20,27 @@ namespace Doctrine\Common\Collections {
 
 namespace Doctrine\ORM\Mapping {
     // Attribute stubs used by generated entities
-    <<\Attribute(\Attribute::TARGET_CLASS | \Attribute::TARGET_PROPERTY)>>
+    #[\Attribute(\Attribute::TARGET_CLASS | \Attribute::TARGET_PROPERTY)]
     class Entity { public function __construct() {} }
 
-    <<\Attribute(\Attribute::TARGET_PROPERTY)>>
-    class Column { public function __construct(array $args = []) {} }
+    #[\Attribute(\Attribute::TARGET_PROPERTY)]
+    class Column { public function __construct(array $_args = []) {} }
 
-    <<\Attribute(\Attribute::TARGET_PROPERTY)>>
+    #[\Attribute(\Attribute::TARGET_PROPERTY)]
     class Id { public function __construct() {} }
 
-    <<\Attribute(\Attribute::TARGET_PROPERTY)>>
+    #[\Attribute(\Attribute::TARGET_PROPERTY)]
     class GeneratedValue { public function __construct() {} }
 
-    <<\Attribute(\Attribute::TARGET_PROPERTY)>>
-    class ManyToOne { public function __construct(array $args = []) {} }
+    #[\Attribute(\Attribute::TARGET_PROPERTY)]
+    class ManyToOne { public function __construct(array $_args = []) {} }
 
-    <<\Attribute(\Attribute::TARGET_PROPERTY)>>
-    class OneToMany { public function __construct(array $args = []) {} }
+    #[\Attribute(\Attribute::TARGET_PROPERTY)]
+    class OneToMany { public function __construct(array $_args = []) {} }
 
-    <<\Attribute(\Attribute::TARGET_PROPERTY)>>
-    class ManyToMany { public function __construct(array $args = []) {} }
+    #[\Attribute(\Attribute::TARGET_PROPERTY)]
+    class ManyToMany { public function __construct(array $_args = []) {} }
 
-    <<\Attribute(\Attribute::TARGET_PROPERTY)>>
-    class JoinColumn { public function __construct(array $args = []) {} }
+    #[\Attribute(\Attribute::TARGET_PROPERTY)]
+    class JoinColumn { public function __construct(array $_args = []) {} }
 }
