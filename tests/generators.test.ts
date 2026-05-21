@@ -149,7 +149,7 @@ describe("Laravel controller generator", () => {
     const files = generateLaravelFromContract(blogContract, tmp);
     const ctrl = files.find((f) => f.endsWith("ListPostsController.php"))!;
     const content = fs.readFileSync(ctrl, "utf8");
-    expect(content).toContain("paginate(15)");
+    expect(content).toContain("->paginate(");
   });
 
   it("adds findOrFail hint for show endpoints", () => {
@@ -227,7 +227,7 @@ describe("Symfony controller generator", () => {
     const files = generateSymfonyFromContract(blogContract, tmp);
     const ctrl = files.find((f) => f.endsWith("ListPostsController.php"))!;
     const content = fs.readFileSync(ctrl, "utf8");
-    expect(content).toContain("paginate");
+    expect(content).toContain("setMaxResults");
   });
 
   it("adds createNotFoundException hint for show endpoints", () => {

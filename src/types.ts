@@ -26,14 +26,26 @@ export interface PathParameter {
   schema?: SchemaProperty;
 }
 
+export interface SecurityScheme {
+  type: "http" | "apiKey" | "oauth2" | "openIdConnect";
+  scheme?: string;       // bearer, basic
+  bearerFormat?: string; // JWT, Token
+  in?: string;           // header, query, cookie
+  name?: string;         // header/param name
+}
+
 export interface EndpointContract {
   method: string;
   path: string;
   operationId: string;
   summary?: string;
+  description?: string;
   tags: string[];
   pathParameters?: PathParameter[];
   requestBodySchema?: EndpointSchema;
+  responseSchema?: EndpointSchema;      // shape of the 200/201 response body
+  security?: string[];                  // security scheme names applied to this endpoint
+  deprecated?: boolean;
 }
 
 export interface ApiContract {
@@ -42,6 +54,8 @@ export interface ApiContract {
   endpoints: EndpointContract[];
   /** Resolved component schemas keyed by $ref name */
   componentSchemas?: Record<string, EndpointSchema>;
+  /** Security schemes defined in components/securitySchemes */
+  securitySchemes?: Record<string, SecurityScheme>;
 }
 
 export interface ConvertOptions {

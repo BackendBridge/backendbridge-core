@@ -14,8 +14,12 @@ function isShowEndpoint(endpoint: EndpointContract): boolean {
   return endpoint.method === "get" && /\{[^}]+\}/.test(endpoint.path);
 }
 
-function entityName(operationId: string): string {
-  return toStudly(operationId.replace(/^(create|update|delete|get|list|show|fetch|index)_?/i, "")) || toStudly(operationId);
+function entityName(operationId: string, tags?: string[]): string {
+  if (tags?.length) return toStudly(tags[0]);
+  return (
+    toStudly(operationId.replace(/^(create|update|delete|get|list|show|fetch|index)_?/i, "")) ||
+    toStudly(operationId)
+  );
 }
 
 // ─── Schema → Symfony Assert constraints ─────────────────────────────────────
@@ -23,14 +27,12 @@ function entityName(operationId: string): string {
 function schemaPropertyToAsserts(prop: EndpointSchema["properties"][string], required: boolean): string[] {
   const asserts: string[] = [];
 
-  // Multiple file uploads: type:array, items.format:binary
   if (prop.type === "array" && prop.items?.format === "binary") {
     if (required) asserts.push("#[Assert\\NotNull]");
     asserts.push("#[Assert\\All([new Assert\\File(maxSize: '10M')])]");
     return asserts;
   }
 
-  // Single file upload
   if (prop.format === "binary") {
     if (required) asserts.push("#[Assert\\NotNull]");
     asserts.push("#[Assert\\File(maxSize: '10M')]");
@@ -40,7 +42,6 @@ function schemaPropertyToAsserts(prop: EndpointSchema["properties"][string], req
   if (required) asserts.push("#[Assert\\NotBlank]");
   if (prop.nullable) asserts.push("// nullable");
 
-  const type = prop.type ?? "string";
   if (prop.format === "email") asserts.push("#[Assert\\Email]");
   else if (prop.format === "uri") asserts.push("#[Assert\\Url]");
   else if (prop.format === "uuid") asserts.push("#[Assert\\Uuid]");
@@ -117,34 +118,24 @@ function buildControllerBody(
   endpoint: EndpointContract,
   dtoClass: string | null,
   rule: ReturnType<typeof resolveRule>,
+  entity: string,
 ): string {
-  const authHint = rule?.auth?.length
-    ? `            // Auth: ${rule.auth.join(", ")}\n            // $this->denyAccessUnlessGranted('VIEW', $resource);\n`
-    : "";
-
   const hasFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
     (p) => p.format === "binary" || (p.type === "array" && p.items?.format === "binary"),
   );
-
-  const pathParams = (endpoint.pathParameters ?? [])
-    .filter((p) => p.in === "path")
-    .map((p) => {
-      const phpType = p.schema?.type === "integer" ? "int" : "string";
-      return `            // Path param: $${p.name} (${phpType})`;
-    })
-    .join("\n");
+  const hasMultiUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.type === "array" && p.items?.format === "binary",
+  );
+  const hasSingleFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.format === "binary",
+  );
 
   const isWrite = ["post", "put", "patch"].includes(endpoint.method);
   const isDelete = endpoint.method === "delete";
   const isList = isListEndpoint(endpoint);
   const isShow = isShowEndpoint(endpoint);
-  const entity = entityName(endpoint.operationId);
 
-  const hasMultiUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
-    (p) => p.type === "array" && p.items?.format === "binary",
-  );
-
-  // MapRequestPayload doesn't handle file uploads — fall back to Request for those cases
+  // Param signature
   let dtoParam: string;
   if (hasFileUpload || !dtoClass) {
     dtoParam = "Request $request";
@@ -153,59 +144,91 @@ function buildControllerBody(
   }
 
   let innerBody = "";
-  if (authHint) innerBody += authHint;
+
+  // Auth
+  if (rule?.auth?.length) {
+    innerBody += `            // Auth (mapping): ${rule.auth.join(", ")}\n`;
+    innerBody += `            // $this->denyAccessUnlessGranted('VIEW', null);\n`;
+  } else if (endpoint.security?.length) {
+    innerBody += `            // Auth (${endpoint.security.join(", ")}): $user = $this->getUser();\n`;
+    innerBody += `            // if (!$user) throw $this->createAccessDeniedException();\n`;
+  }
+
+  // Path & query params
+  const pathParams = (endpoint.pathParameters ?? [])
+    .filter((p) => p.in === "path")
+    .map((p) => {
+      const phpType = p.schema?.type === "integer" ? "int" : "string";
+      return `            // Path: $${p.name} (${phpType})`;
+    })
+    .join("\n");
+  const queryParams = (endpoint.pathParameters ?? [])
+    .filter((p) => p.in === "query")
+    .map((p) => `            // Query: $request->query->get('${p.name}')${p.required ? "" : " // optional"}`)
+    .join("\n");
+
   if (pathParams) innerBody += pathParams + "\n";
+  if (queryParams) innerBody += queryParams + "\n";
 
   if (isList) {
-    innerBody += `            // List with pagination (requires knplabs/knp-paginator-bundle)\n`;
-    innerBody += `            // $query = $em->getRepository(${entity}::class)->createQueryBuilder('e')->getQuery();\n`;
-    innerBody += `            // $pagination = $paginator->paginate($query, $request->query->getInt('page', 1), 15);\n`;
-    innerBody += `            // return $this->json($pagination);\n`;
+    innerBody += `            $repository = $this->em->getRepository(${entity}::class);\n`;
+    innerBody += `            $qb = $repository->createQueryBuilder('e');\n`;
+    innerBody += `            // Add filters: ->where('e.user = :user')->setParameter('user', $this->getUser())\n`;
+    innerBody += `            $page = $request->query->getInt('page', 1);\n`;
+    innerBody += `            $limit = $request->query->getInt('per_page', 15);\n`;
+    innerBody += `            $results = $qb->setFirstResult(($page - 1) * $limit)->setMaxResults($limit)->getQuery()->getResult();\n`;
+    innerBody += `            return $this->json($results);\n`;
   } else if (isShow) {
-    innerBody += `            // $entity = $em->getRepository(${entity}::class)->find($id);\n`;
-    innerBody += `            // if (!$entity) { throw $this->createNotFoundException('${entity} not found'); }\n`;
-    innerBody += `            // return $this->json($entity);\n`;
+    const idParam = (endpoint.pathParameters ?? []).find((p) => p.in === "path")?.name ?? "id";
+    innerBody += `            $entity = $this->em->getRepository(${entity}::class)->find($${idParam});\n`;
+    innerBody += `            if (!$entity) { throw $this->createNotFoundException('${entity} not found'); }\n`;
+    innerBody += `            return $this->json($entity);\n`;
   } else if (isWrite) {
-    innerBody += `            // $em->beginTransaction();\n`;
-    innerBody += `            // try {\n`;
-    innerBody += `            //     $entity = new ${entity}();\n`;
-    innerBody += `            //     // TODO: map $payload properties to $entity\n`;
-    innerBody += `            //     $em->persist($entity);\n`;
-    innerBody += `            //     $em->flush();\n`;
-    innerBody += `            //     $em->commit();\n`;
-    innerBody += `            //     return $this->json($entity, ${endpoint.method === "post" ? "201" : "200"});\n`;
-    innerBody += `            // } catch (\\Throwable $e) { $em->rollback(); throw $e; }\n`;
-    innerBody += `            // Inject: private EntityManagerInterface $em\n`;
+    innerBody += `            $this->em->beginTransaction();\n`;
+    innerBody += `            try {\n`;
+    if (endpoint.method === "post") {
+      innerBody += `                $entity = new ${entity}();\n`;
+    } else {
+      const idParam = (endpoint.pathParameters ?? []).find((p) => p.in === "path")?.name ?? "id";
+      innerBody += `                $entity = $this->em->getRepository(${entity}::class)->find($${idParam});\n`;
+      innerBody += `                if (!$entity) { throw $this->createNotFoundException('${entity} not found'); }\n`;
+    }
+    if (dtoClass && !hasFileUpload) {
+      innerBody += `                // Map DTO to entity: $entity->setTitle($payload->title);\n`;
+    } else {
+      innerBody += `                // Map request to entity from $request->request->all()\n`;
+    }
+    innerBody += `                $this->em->persist($entity);\n`;
+    innerBody += `                $this->em->flush();\n`;
+    innerBody += `                $this->em->commit();\n`;
+    innerBody += `                return $this->json($entity, ${endpoint.method === "post" ? "201" : "200"});\n`;
+    innerBody += `            } catch (\\Throwable $e) {\n`;
+    innerBody += `                $this->em->rollback();\n`;
+    innerBody += `                throw $e;\n`;
+    innerBody += `            }\n`;
   } else if (isDelete) {
-    innerBody += `            // $entity = $em->getRepository(${entity}::class)->find($id);\n`;
-    innerBody += `            // if (!$entity) { throw $this->createNotFoundException('${entity} not found'); }\n`;
-    innerBody += `            // $em->remove($entity); $em->flush();\n`;
-    innerBody += `            // return $this->json(null, 204);\n`;
+    const idParam = (endpoint.pathParameters ?? []).find((p) => p.in === "path")?.name ?? "id";
+    innerBody += `            $entity = $this->em->getRepository(${entity}::class)->find($${idParam});\n`;
+    innerBody += `            if (!$entity) { throw $this->createNotFoundException('${entity} not found'); }\n`;
+    innerBody += `            $this->em->remove($entity);\n`;
+    innerBody += `            $this->em->flush();\n`;
+    innerBody += `            return $this->json(null, 204);\n`;
   }
 
-  const hasSingleFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
-    (p) => p.format === "binary",
-  );
-  if (hasSingleFileUpload) {
-    innerBody += `            // Single upload : $file = $request->files->get('field'); $file->move($targetDir, $filename);\n`;
-  }
-  if (hasMultiUpload) {
-    innerBody += `            // Multiple uploads: foreach ($request->files->get('photos') as $f) { $f->move($dir, $f->getClientOriginalName()); }\n`;
-  }
+  if (hasSingleFileUpload) innerBody += `            // Single upload: $file = $request->files->get('field'); $file->move($targetDir, $filename);\n`;
+  if (hasMultiUpload) innerBody += `            // Multiple uploads: foreach ($request->files->get('photos') as $f) { $f->move($dir, $f->getClientOriginalName()); }\n`;
 
-  innerBody += `\n`;
-  innerBody += `            // Session : $session = $request->getSession(); $session->get('key') / set('key', val) / remove('key')\n`;
-  innerBody += `            // Cookie  : $response->headers->setCookie(new Cookie('name', 'value', time() + 3600));\n`;
-  innerBody += `            // JWT     : $user = $this->getUser(); // requires lexik/jwt-authentication-bundle\n`;
-  innerBody += `\n`;
-  innerBody += `            return $this->json(['status' => 'ok', 'operation' => '${endpoint.operationId}']);`;
+  if (!isList && !isShow && !isWrite && !isDelete) {
+    innerBody += `            return $this->json(['status' => 'ok', 'operation' => '${endpoint.operationId}']);\n`;
+  }
 
   return `    public function __invoke(${dtoParam}): JsonResponse
     {
         try {
-${innerBody}
-        } catch (\\Symfony\\Component\\HttpKernel\\Exception\\NotFoundHttpException $e) {
+${innerBody}        } catch (\\Symfony\\Component\\HttpKernel\\Exception\\NotFoundHttpException $e) {
             return $this->json(['message' => $e->getMessage()], 404);
+        } catch (\\Symfony\\Component\\HttpKernel\\Exception\\AccessDeniedHttpException $e) {
+            return $this->json(['message' => 'Access denied'], 403);
         } catch (\\Symfony\\Component\\Validator\\Exception\\ValidationFailedException $e) {
             return $this->json(['message' => 'Validation failed', 'errors' => (string) $e->getViolations()], 422);
         } catch (\\Throwable $e) {
@@ -219,9 +242,11 @@ function generateControllerClass(
   endpoint: EndpointContract,
   dtoClass: string | null,
   rule: ReturnType<typeof resolveRule>,
+  entity: string,
 ): string {
-  const methodName = toStudly(endpoint.method.toLowerCase()) + toStudly(endpoint.operationId);
   const summaryLine = endpoint.summary ? ` * ${endpoint.summary}\n` : "";
+  const descLine = endpoint.description ? ` * ${endpoint.description.replace(/\n/g, "\n * ")}\n` : "";
+  const deprecatedLine = endpoint.deprecated ? ` * @deprecated\n` : "";
   const mappingHints = [
     rule?.dto ? ` * DTO: ${rule.dto}` : undefined,
     rule?.validation?.length ? ` * Validation: ${rule.validation.join(", ")}` : undefined,
@@ -237,7 +262,12 @@ function generateControllerClass(
     ? `use App\\Dto\\Generated\\${dtoClass};\nuse Symfony\\Component\\HttpKernel\\Attribute\\MapRequestPayload;\n`
     : hasFileUpload
       ? "use Symfony\\Component\\HttpFoundation\\Request;\n"
-      : "";
+      : "use Symfony\\Component\\HttpFoundation\\Request;\n";
+
+  const entityImport = `use App\\Entity\\${entity};\n`;
+  const emImport = `use Doctrine\\ORM\\EntityManagerInterface;\n`;
+
+  const needsRequest = hasFileUpload || !dtoClass || isListEndpoint(endpoint);
 
   return `<?php
 
@@ -246,14 +276,16 @@ namespace App\\Controller\\Generated;
 use Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;
 use Symfony\\Component\\HttpFoundation\\JsonResponse;
 use Symfony\\Component\\Routing\\Attribute\\Route;
-${dtoImport}
+${needsRequest ? "use Symfony\\Component\\HttpFoundation\\Request;\n" : ""}${dtoClass && !hasFileUpload ? `use App\\Dto\\Generated\\${dtoClass};\nuse Symfony\\Component\\HttpKernel\\Attribute\\MapRequestPayload;\n` : ""}${entityImport}${emImport}
 class ${className} extends AbstractController
 {
+    public function __construct(private readonly EntityManagerInterface $em) {}
+
     /**
-${summaryLine}     * Auto-generated by BackendBridge.
+${summaryLine}${descLine}${deprecatedLine}     * Auto-generated by BackendBridge.
 ${mappingHints ? mappingHints + "\n" : ""}     */
     #[Route('${endpoint.path}', name: '${endpoint.operationId}', methods: ['${endpoint.method.toUpperCase()}'])]
-${buildControllerBody(endpoint, dtoClass, rule)}
+${buildControllerBody(endpoint, dtoClass, rule, entity)}
 }
 `;
 }
@@ -274,8 +306,9 @@ export function generateSymfonyFromContract(
   for (const endpoint of contract.endpoints) {
     const className = `${toStudly(endpoint.operationId)}Controller`;
     const rule = resolveRule(mapping, endpoint.method, endpoint.path, endpoint.operationId);
+    const entity = entityName(endpoint.operationId, endpoint.tags);
 
-    // Generate DTO if there is a requestBody schema
+    // DTO for write endpoints
     let dtoClass: string | null = null;
     const bodySchema = endpoint.requestBodySchema;
     if (bodySchema && Object.keys(bodySchema.properties).length > 0 && ["post", "put", "patch"].includes(endpoint.method)) {
@@ -287,8 +320,8 @@ export function generateSymfonyFromContract(
       generatedFiles.push(dtoPath);
     }
 
-    // Generate controller
-    const controllerContent = generateControllerClass(className, endpoint, dtoClass, rule);
+    // Controller
+    const controllerContent = generateControllerClass(className, endpoint, dtoClass, rule, entity);
     const controllerPath = path.join(controllersDir, `${className}.php`);
     fs.writeFileSync(controllerPath, controllerContent, "utf8");
     generatedFiles.push(controllerPath);
