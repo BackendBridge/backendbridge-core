@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { appendActionLog } from "./action-log.js";
 import { defaultCommitMessage, commitGeneratedFiles } from "./commit.js";
+import { runExtraction } from "./extract.js";
 import { resolveFramework } from "./framework.js";
 import { generateLaravelFromContract } from "./generators/laravel.js";
 import { generateSymfonyFromContract } from "./generators/symfony.js";
@@ -32,7 +34,20 @@ export function runConversion(
   }
 
   if (!fs.existsSync(options.openApiPath)) {
-    throw new Error("Fichier OpenAPI introuvable. Fournis --openapi avec un fichier .yaml, .yml ou .json.");
+    if (!options.extractIfMissing) {
+      throw new Error("Fichier OpenAPI introuvable. Fournis --openapi avec un fichier .yaml, .yml ou .json.");
+    }
+
+    const extractOutPath = options.extractOutPath ?? options.openApiPath;
+    runExtraction(
+      {
+        from,
+        sourcePath: options.sourcePath,
+        outPath: extractOutPath,
+        dryRun: options.dryRun,
+      },
+      false,
+    );
   }
 
   ensureDir(options.outPath);
@@ -55,6 +70,15 @@ export function runConversion(
   };
   fs.writeFileSync(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
   generatedFiles.push(metadataPath);
+
+  const actionLogFile = appendActionLog(options.sourcePath, "convert", {
+    from,
+    to,
+    openApiPath: options.openApiPath,
+    outPath: options.outPath,
+    generatedFiles: generatedFiles.length,
+  });
+  generatedFiles.push(actionLogFile);
 
   if (!options.dryRun && shouldCommit) {
     const message = commitMessage ?? defaultCommitMessage(from, to);
