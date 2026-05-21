@@ -8,6 +8,8 @@ import { generateLaravelFromContract } from "./generators/laravel.js";
 import { generateSymfonyFromContract } from "./generators/symfony.js";
 import { loadMappingFile } from "./mapping.js";
 import { convertEnvFile } from "./env-converter.js";
+import { convertEntitiesToModels } from "./entity-model-converter.js";
+import { generateLaravelMigrationFromClasses, generateSqlFromClasses } from "./migration-generator.js";
 import { parseOpenApiToContract } from "./openapi.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
@@ -92,6 +94,21 @@ export function runConversion(
     }
   } catch (e) {
     // don't fail conversion on env conversion errors
+  }
+
+  // Generate models/entities and migrations from source classes
+  try {
+    const models = convertEntitiesToModels(options.sourcePath, options.outPath, to);
+    generatedFiles.push(...models);
+  } catch (e) {
+    // ignore
+  }
+
+  try {
+    const migrations = to === 'laravel' ? generateLaravelMigrationFromClasses(options.sourcePath, path.join(options.outPath, 'database', 'migrations')) : generateSqlFromClasses(options.sourcePath, path.join(options.outPath, 'migrations'));
+    generatedFiles.push(...migrations);
+  } catch (e) {
+    // ignore
   }
 
   if (!options.dryRun && shouldCommit) {

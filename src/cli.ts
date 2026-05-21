@@ -8,7 +8,7 @@ import { runMappingExport, runMappingImport } from "./mapping.js";
 import { runPipeline } from "./pipeline.js";
 import { runRelease } from "./release.js";
 import type { SupportedFramework } from "./types.js";
-import { applyMapping } from "./mapping-applier.js";
+import { applyMapping, applyMappingInteractive } from "./mapping-applier.js";
 
 const program = new Command();
 
@@ -102,7 +102,7 @@ program
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler sans commit")
-  .action((rawOptions) => {
+  .action(async (rawOptions) => {
     try {
       const sourcePath = path.resolve(rawOptions.source);
       const outPath = path.resolve(rawOptions.out);
