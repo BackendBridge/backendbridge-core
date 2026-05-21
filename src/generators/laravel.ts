@@ -178,7 +178,10 @@ function buildControllerBody(endpoint: EndpointContract, formRequestClass: strin
   const hasMultiUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
     (p) => p.type === "array" && p.items?.format === "binary",
   );
-  if (hasFileUpload && !hasMultiUpload) {
+  const hasSingleFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.format === "binary",
+  );
+  if (hasSingleFileUpload) {
     innerBody += `            // Single upload : $file = $request->file('field'); $path = $file->store('uploads', 'public');\n`;
   }
   if (hasMultiUpload) {
