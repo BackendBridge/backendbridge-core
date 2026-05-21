@@ -23,7 +23,7 @@ const program = new Command();
 program
   .name("backendbridge")
   .description("CLI de bridge REST Symfony <-> Laravel (routes, ApiPlatform, mapping metier, release)")
-  .version("0.1.0");
+  .version("0.2.0");
 
 program
   .command("convert")

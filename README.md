@@ -1,28 +1,65 @@
 # BackendBridge
 
-BackendBridge est un CLI Node.js + TypeScript pour convertir une API Symfony vers Laravel et inversement.
-Le tool prend en charge les APIs REST classiques, ApiPlatform, les contrats OpenAPI, un mapping metier (DTO/validation/auth), un doctor d'audit et un flow de release npm.
+CLI Node.js + TypeScript pour convertir une API Symfony vers Laravel et inversement.
+Prend en charge les APIs REST classiques, ApiPlatform, les contrats OpenAPI, un mapping métier (DTO/validation/auth), un doctor d'audit et un flow de release npm.
 
-## Pourquoi OpenAPI dans le flow ?
-
-La compatibilite avec "n'importe quelle version" de Symfony/Laravel est traitee via un format intermediaire stable (OpenAPI).
-Mais BackendBridge n'est pas limite a un contrat fourni manuellement: il peut extraire le contrat depuis routes/controllers REST et metadata ApiPlatform, puis convertir.
-
-## Installation
+## Installation globale
 
 ```bash
-npm install
-npm run build
-npm link
+npm install -g backendbridge
 ```
 
-Puis commande globale:
+Ou depuis les sources:
 
 ```bash
-backendbridge --help
+npm install && npm run build && npm link
 ```
 
-## Commande principale
+Lors de la première utilisation, BackendBridge vérifie que PHP, Composer, Laravel CLI et Symfony CLI sont disponibles:
+
+```bash
+backendbridge setup
+```
+
+Si un outil manque, il propose de l'installer automatiquement.
+
+## Créer un projet vide
+
+```bash
+backendbridge create --framework laravel --name mon-api --out ./projets
+backendbridge create --framework symfony --name mon-api --type api --out ./projets
+```
+
+Options `--type`: `api` (défaut), `webapp`, `skeleton`.
+
+## Générer le scaffold dans les deux frameworks
+
+```bash
+backendbridge build \
+  --openapi ./contracts/api.yaml \
+  --out ./generated \
+  --with-seeders \
+  --with-middleware \
+  --with-mailer \
+  --with-jobs \
+  --with-docker
+```
+
+Génère `./generated/laravel/` et `./generated/symfony/` depuis un seul contrat OpenAPI.
+
+## Démarrer les serveurs
+
+```bash
+backendbridge run \
+  --laravel ./generated/laravel \
+  --symfony ./generated/symfony \
+  --laravel-port 8000 \
+  --symfony-port 8001
+```
+
+Démarre les deux serveurs en parallèle (Ctrl+C pour stopper).
+
+## Commande convert (framework unique)
 
 ```bash
 backendbridge convert \
@@ -32,110 +69,75 @@ backendbridge convert \
   --openapi ./mon-projet-symfony/openapi.yaml \
   --mapping ./mapping/business-map.json \
   --out ./generated/laravel \
+  --with-seeders \
+  --with-middleware \
+  --with-mailer \
+  --with-jobs \
+  --with-docker \
   --commit "feat(bridge): convert user api symfony to laravel"
 ```
 
-Conversion avec extraction automatique si `openapi` est absent:
+Options disponibles:
 
-```bash
-backendbridge convert \
-  --from auto \
-  --to symfony \
-  --source ./mon-projet-laravel \
-  --openapi ./.backendbridge/extracted-openapi.yaml \
-  --extract-if-missing \
-  --mapping ./mapping/business-map.json \
-  --out ./generated/symfony \
-  --commit "feat(bridge): convert laravel api to symfony with auto extract"
-```
+| Flag | Description |
+|------|-------------|
+| `--with-seeders` | Génère seeders + factories (Laravel) ou fixtures Doctrine (Symfony) |
+| `--with-middleware` | Génère middleware JWT/auth/throttle/CORS |
+| `--with-mailer` | Génère stubs Mailable (Laravel) ou Mailer service (Symfony) |
+| `--with-jobs` | Génère Jobs/Messages, Events/Listeners, Notifications |
+| `--with-docker` | Génère Dockerfile + docker-compose.yml |
+| `--with-tests` | Génère squelette PHPUnit |
+| `--dry-run` | Simule sans écrire |
+| `--extract-if-missing` | Extrait OpenAPI auto si le fichier est absent |
 
-Sens inverse:
+### Ce qui est généré par convert
 
-```bash
-backendbridge convert \
-  --from auto \
-  --to symfony \
-  --source ./mon-projet-laravel \
-  --openapi ./mon-projet-laravel/openapi.json \
-  --mapping ./mapping/business-map.json \
-  --out ./generated/symfony \
-  --commit "feat(bridge): convert billing api laravel to symfony"
-```
-
-## Mapping metier (DTO / validation / auth)
-
-Exporter un mapping depuis une API source:
-
-```bash
-backendbridge mapping-export \
-  --from auto \
-  --source ./mon-projet-symfony \
-  --openapi ./contracts/symfony-openapi.yaml \
-  --out ./mapping/business-map.json \
-  --commit "feat(bridge): export business mapping from symfony api"
-```
-
-Importer ce mapping dans un repository cible:
-
-```bash
-backendbridge mapping-import \
-  --source ./mon-projet-laravel \
-  --mapping ./mapping/business-map.json \
-  --target ./config/backendbridge/mapping.json \
-  --commit "feat(bridge): import business mapping into laravel repo"
-```
-
-Appliquer un mapping dans un projet cible (génère des stubs de validation/auth adaptés au framework):
-
-```bash
-backendbridge apply-mapping \
-  --mapping ./mapping/business-map.json \
-  --target ./mon-projet-laravel \
-  --framework laravel \
-  --commit "feat(mapping): apply business mapping stubs"
-```
-
-Options importantes:
-
-- `--mapping`: chemin vers le fichier JSON/YAML de mapping exporté.
-- `--target`: racine du projet cible où seront écrits les stubs (`app/Http/Requests` pour Laravel, `src/Request` pour Symfony).
-- `--framework`: `laravel` | `symfony` | `auto` (par défaut `auto`, utilise la valeur dans le mapping si présente).
-- `--dry-run`: ne rien écrire (utile pour vérification préliminaire).
-- `--commit`: committer automatiquement les fichiers générés avec un message conventionnel.
-
-Le générateur produit des fichiers `GeneratedRequest` contenant des commentaires/hints issus du mapping. Ils servent de base pour implémenter les règles de validation et les règles d'authentification spécifiques au projet.
+- **Controllers** avec try/catch (404, 422, 500), pagination (`paginate(15)`) pour les GETs liste, `findOrFail` pour les GETs par ID, transactions DB pour les écritures
+- **FormRequests** (Laravel) / **DTOs avec Asserts** (Symfony) depuis le schema OpenAPI
+- **JsonResources** (Laravel) pour chaque ressource exposée en GET
+- **Routes** (`routes/api.php` Laravel, `#[Route]` attributes Symfony)
+- **Uploads** : single (`format: binary`) et multiple (`type: array, items.format: binary`) — génère les règles de validation et les hints de stockage
+- **Sessions, Cookies, JWT** : hints dans chaque controller
+- **Docker** : Dockerfile PHP 8.2, docker-compose avec MySQL (Laravel) ou PostgreSQL (Symfony), healthchecks
+- **Seeders/Factories** : inférence Faker par nom de champ (email→safeEmail, name→name(), phone→phoneNumber(), etc.)
+- **Middleware** : JWT auth subscriber, throttle, CORS
+- **Mailer** : WelcomeMail, PasswordResetMail, config .env
+- **Jobs/Events/Notifications** :
+  - Laravel: `ShouldQueue` Jobs, Events, Listeners, Notifications (mail+database), `GeneratedEventServiceProvider`
+  - Symfony: Messenger Messages + Handlers (`#[AsMessageHandler]`), Events, Listeners (`#[AsEventListener]`), Notifier Notifications
 
 ## Extraction OpenAPI
 
-Extraire directement le contrat depuis le code source:
-
 ```bash
 backendbridge extract \
   --from auto \
   --source ./mon-projet-laravel \
-  --out ./contracts/laravel-openapi.yaml \
-  --commit "feat(bridge): extract openapi from laravel api"
+  --out ./contracts/laravel-openapi.yaml
 ```
 
-Idem depuis Symfony:
+Détecte automatiquement Laravel (`Route::...`) et Symfony (`#[Route]`, ApiPlatform).
+
+## Mapping métier (DTO / validation / auth)
 
 ```bash
-backendbridge extract \
+# Exporter depuis la source
+backendbridge mapping-export \
   --from auto \
   --source ./mon-projet-symfony \
-  --out ./contracts/symfony-openapi.json \
-  --commit "feat(bridge): extract openapi from symfony api"
-```
+  --openapi ./contracts/api.yaml \
+  --out ./mapping/business-map.json
 
-Le mode Symfony detecte aussi ApiPlatform (`ApiResource`, operations metadata `Get/Post/...`).
+# Appliquer dans le projet cible
+backendbridge apply-mapping \
+  --mapping ./mapping/business-map.json \
+  --target ./mon-projet-laravel \
+  --framework laravel
+```
 
 ## Pipeline d'actions
 
-Tu peux executer plusieurs actions avec commit par action via un fichier de plan.
-
-Exemple `bridge.pipeline.yaml`:
-
 ```yaml
+# bridge.pipeline.yaml
 version: 1
 actions:
   - type: extract
@@ -149,12 +151,9 @@ actions:
     to: laravel
     source: ./api-source
     openapi: ./contracts/source-openapi.yaml
-    mapping: ./mapping/business-map.json
     out: ./generated/laravel
     commit: "feat(bridge): convert source api to laravel"
 ```
-
-Execution:
 
 ```bash
 backendbridge run-plan --file ./bridge.pipeline.yaml
@@ -166,60 +165,30 @@ backendbridge run-plan --file ./bridge.pipeline.yaml
 backendbridge doctor \
   --from auto \
   --source ./mon-projet-symfony \
-  --report ./reports/doctor.json \
-  --commit "chore(doctor): audit source api compatibility"
+  --report ./reports/doctor.json
 ```
 
-Le doctor remonte notamment:
+Remonte : framework détecté, nombre de routes, couverture ApiPlatform, risques de compatibilité.
 
-- detection framework et ApiPlatform
-- nombre de routes/operations REST detectees
-- risques de compatibilite (absence routes, couverture faible, etc.)
-
-## Release (version bump + changelog + npm publish)
-
-Dry-run:
+## Release
 
 ```bash
 backendbridge release --source . --bump minor --dry-run
-```
-
-Release reelle + publication npm:
-
-```bash
 backendbridge release --source . --bump patch --publish
 ```
 
-Effets:
+Bump `package.json`, génère `CHANGELOG.md`, commit `chore(release): vX.Y.Z`, tag, et publie sur npm.
 
-- bump `package.json`
-- generation/mise a jour `CHANGELOG.md`
-- commit `chore(release): vX.Y.Z` + tag `vX.Y.Z`
-- `npm publish` si `--publish`
-
-## Conventions de commit
-
-Le message doit respecter le format Conventional Commits:
-
-- `fix(game): fix float modulo crash when pressing Enter on start screen`
-- `feat(game): add 5 level themes, fire projectile, procedural obstacles`
-
-La validation est appliquee avant le commit auto.
-
-Chaque action CLI (`extract`, `convert`, `mapping-export`, `mapping-import`, `doctor`, `run-plan`) ajoute egalement une trace dans `.backendbridge/actions.log`.
-
-## Scripts
+## Scripts de dev
 
 ```bash
 npm run lint
-npm run test
+npm test
 npm run build
 ```
 
-## Limites actuelles
+## Limites
 
-- Extraction basee sur patterns Laravel (`Route::...`) et Symfony (`#[Route(...)]` / `@Route(...)`).
-- ApiPlatform est supporte en extraction metadata, mais la reconstruction metier complete depend toujours du mapping fourni.
-- Generation scaffold API (routes + controllers generated) a partir du contrat.
-- La logique metier n'est pas traduite automatiquement.
-- Les schemas de validation, middlewares et securite doivent etre ajoutes ensuite.
+- L'extraction repose sur des patterns textuels (pas un vrai AST PHP) — `--use-php-ast` active le parseur PHP pour plus de précision.
+- La logique métier n'est pas traduite automatiquement — les controllers générés sont des scaffolds documentés à compléter.
+- Les schemas de sécurité avancée (voters, policies) doivent être implémentés manuellement à partir des hints générés.
