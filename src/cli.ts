@@ -51,6 +51,7 @@ program
   .option("--with-mailer", "Generer config mailer + stubs Mailable/Symfony Email", false)
   .option("--with-jobs", "Generer Jobs/Messages, Events/Listeners et Notifications", false)
   .option("--with-auth", "Generer Policies (Laravel) ou Voters (Symfony) (auto-extrait de la source si pas de mapping)", false)
+  .option("--with-source-logic", "Traduire la logique metier source (Eloquent↔Doctrine, auth, response…) et l'injecter dans les controllers generés", false)
   .option("--with-services", "Generer stubs de Service depuis l'analyse des controllers source", false)
   .option("--with-repositories", "Generer Repository/Interface par resource", false)
   .option("--with-commands", "Generer Console Commands (Artisan/Symfony) par resource", false)
@@ -101,6 +102,7 @@ program
           withMailer: Boolean(rawOptions.withMailer),
           withJobs: Boolean(rawOptions.withJobs),
           withAuth: Boolean(rawOptions.withAuth),
+          withSourceLogic: Boolean(rawOptions.withSourceLogic),
           withServices: Boolean(rawOptions.withServices),
           withRepositories: Boolean(rawOptions.withRepositories),
           withCommands: Boolean(rawOptions.withCommands),
@@ -900,6 +902,7 @@ program
           withMailer:       detected.withMailer,
           withJobs:         detected.withJobs,
           withAuth:         detected.withAuth,
+          withSourceLogic:  true,
           withServices:     detected.withServices,
           withRepositories: detected.withRepositories,
           withCommands:     detected.withCommands,

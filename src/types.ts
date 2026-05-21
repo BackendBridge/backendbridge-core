@@ -79,6 +79,7 @@ export interface ConvertOptions {
   withJobs?: boolean;
   withAuth?: boolean;
   withServices?: boolean;
+  withSourceLogic?: boolean;
   withRepositories?: boolean;
   withCommands?: boolean;
   withTranslations?: boolean;

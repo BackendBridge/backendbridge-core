@@ -252,7 +252,27 @@ npm run package # binaire standalone (Node.js SEA)
 
 ---
 
+## Traduction de la logique métier
+
+La commande `migrate` analyse les controllers source et traduit automatiquement les patterns courants :
+
+| Laravel (source) | Symfony (généré) |
+|------------------|-----------------|
+| `return response()->json($data)` | `return $this->json($data)` |
+| `auth()->user()` | `$this->getUser()` |
+| `$request->all()` | `$request->request->all()` |
+| `Post::all()` | `$em->getRepository(Post::class)->findAll()` |
+| `Post::find($id)` | `$em->getRepository(Post::class)->find($id)` |
+| `$post->save()` | `$em->persist($post); $em->flush()` |
+| `DB::beginTransaction()` | `$em->beginTransaction()` |
+| `Log::info(...)` | `$this->logger->info(...)` |
+| `dispatch(new Job(...))` | `$this->messageBus->dispatch(new Job(...))` |
+
+Et l'inverse (Symfony → Laravel). Les patterns non reconnus sont inclus en commentaire avec la source originale.
+
+Flag : `--with-source-logic` (activé automatiquement par `migrate`).
+
 ## Limites connues
 
-- **La logique métier n'est pas traduite automatiquement** — les controllers générés sont des scaffolds documentés à compléter. BackendBridge génère les stubs de Service avec les bonnes signatures mais le code interne reste à implémenter.
+- **La logique métier complexe** (conditions imbriquées, services custom, business rules) reste à compléter manuellement — le code source original est inclus en commentaire dans le controller généré.
 - **Les relations Doctrine complexes** (héritage de table, embeddables) ne sont pas couvertes.

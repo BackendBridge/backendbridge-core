@@ -20,6 +20,7 @@ import { generateLaravelJobsEventsNotifications, generateSymfonyJobsEventsNotifi
 import { generateLaravelPolicy, generateSymfonyVoter } from "./generators/auth.js";
 import { extractServicesFromSource, generateLaravelServices, generateSymfonyServices } from "./service-generator.js";
 import { generateSecurityFromSource } from "./security-extractor.js";
+import { enhanceControllersWithSourceLogic } from "./controller-enhancer.js";
 import { generateSymfonyRepositories, generateLaravelRepositories } from "./generators/repository.js";
 import { generateSymfonyEventSubscribers, generateLaravelGuard, generateLaravelServiceProvider, generateLaravelResourceCollections } from "./generators/extras.js";
 import { generateLaravelCommands, generateSymfonyCommands } from "./generators/commands.js";
@@ -304,6 +305,23 @@ export function runConversion(
       dockerized = true;
     } catch (e) {
       warnings.push(`[docker] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Inject translated source logic into generated controllers
+  if (options.withSourceLogic && !options.dryRun) {
+    try {
+      const summary = enhanceControllersWithSourceLogic(
+        options.sourcePath, from, to, options.outPath,
+      );
+      if (summary.enhanced > 0) {
+        warnings.push(`[source-logic] ${summary.enhanced} controller(s) enriched with translated source logic.`);
+      }
+      if (summary.warnings.length) {
+        warnings.push(...summary.warnings.map((w) => `[source-logic] ⚠ ${w}`));
+      }
+    } catch (e) {
+      warnings.push(`[source-logic] ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
