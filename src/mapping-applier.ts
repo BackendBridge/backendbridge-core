@@ -3,6 +3,7 @@ import path from "node:path";
 import { loadMappingFile } from "./mapping.js";
 import { appendActionLog } from "./action-log.js";
 import { commitGeneratedFiles } from "./commit.js";
+import { generateLaravelPolicy, generateSymfonyVoter } from "./generators/auth.js";
 import type { MappingDocument } from "./mapping.js";
 
 export interface ApplyMappingOptions {
@@ -136,6 +137,11 @@ export function applyMapping(
       const content = makeLaravelRequestStub(rule.dto, rule);
       if (!options.dryRun) writeStub(target, content);
       generatedFiles.push(target);
+      // auth stubs for laravel
+      if (Array.isArray(rule.auth) && rule.auth.length > 0) {
+        const authTarget = options.dryRun ? path.join(options.targetPath, "app", "Policies", `${fileName}Policy.php`) : generateLaravelPolicy(options.targetPath, fileName, rule.auth as string[]);
+        generatedFiles.push(authTarget);
+      }
       continue;
     }
 
@@ -144,6 +150,11 @@ export function applyMapping(
     const content = makeSymfonyRequestStub(rule.dto, rule);
     if (!options.dryRun) writeStub(target, content);
     generatedFiles.push(target);
+    // auth stubs for symfony
+    if (Array.isArray(rule.auth) && rule.auth.length > 0) {
+      const authTarget = options.dryRun ? path.join(options.targetPath, "src", "Security", `${fileName}Voter.php`) : generateSymfonyVoter(options.targetPath, fileName, rule.auth as string[]);
+      generatedFiles.push(authTarget);
+    }
   }
 
   let actionLog: string;
