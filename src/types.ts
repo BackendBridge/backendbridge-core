@@ -10,6 +10,8 @@ export interface SchemaProperty {
   enum?: string[];
   nullable?: boolean;
   $ref?: string;
+  /** For type:array — describes each item (used for multiple file uploads etc.) */
+  items?: { type?: string; format?: string };
 }
 
 export interface EndpointSchema {
@@ -57,4 +59,7 @@ export interface ConvertOptions {
   envOutName?: string;
   withTests?: boolean;
   withDocker?: boolean;
+  withSeeders?: boolean;
+  withMiddleware?: boolean;
+  withMailer?: boolean;
 }

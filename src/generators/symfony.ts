@@ -9,6 +9,14 @@ import { toStudly, ensureDir } from "../utils.js";
 function schemaPropertyToAsserts(prop: EndpointSchema["properties"][string], required: boolean): string[] {
   const asserts: string[] = [];
 
+  // Multiple file uploads: type:array, items.format:binary
+  if (prop.type === "array" && prop.items?.format === "binary") {
+    if (required) asserts.push("#[Assert\\NotNull]");
+    asserts.push("#[Assert\\All([new Assert\\File(maxSize: '10M')])]");
+    return asserts;
+  }
+
+  // Single file upload
   if (prop.format === "binary") {
     if (required) asserts.push("#[Assert\\NotNull]");
     asserts.push("#[Assert\\File(maxSize: '10M')]");
@@ -45,6 +53,7 @@ function schemaPropertyToAsserts(prop: EndpointSchema["properties"][string], req
 
 function phpTypeFromSchema(prop: EndpointSchema["properties"][string], required: boolean): string {
   const nullable = !required || prop.nullable ? "?" : "";
+  if (prop.type === "array" && prop.items?.format === "binary") return `${nullable}array`;
   if (prop.format === "binary") return `${nullable}UploadedFile`;
   const type = prop.type ?? "string";
   if (type === "integer") return `${nullable}int`;
@@ -100,7 +109,7 @@ function buildControllerBody(
     : "";
 
   const hasFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
-    (p) => p.format === "binary",
+    (p) => p.format === "binary" || (p.type === "array" && p.items?.format === "binary"),
   );
 
   const pathParams = (endpoint.pathParameters ?? [])
@@ -116,9 +125,22 @@ function buildControllerBody(
     ? `        // $em->persist($entity); $em->flush(); // inject EntityManagerInterface $em via __construct\n`
     : "";
 
-  const fileHint = hasFileUpload
-    ? `        // File: $file = $request->files->get('field'); $file->move($targetDir, $filename);\n`
+  const hasMultiUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.type === "array" && p.items?.format === "binary",
+  );
+  const fileHint = hasFileUpload && !hasMultiUpload
+    ? `        // Single upload : $file = $request->files->get('field'); $file->move($targetDir, $filename);\n`
     : "";
+  const multiFileHint = hasMultiUpload
+    ? `        // Multiple uploads: foreach ($request->files->get('photos') as $f) { $f->move($dir, $f->getClientOriginalName()); }\n`
+    : "";
+
+  // Infrastructure hints
+  const infraHints = [
+    `        // Session : $session = $request->getSession(); $session->get('key') / set('key', val) / remove('key')`,
+    `        // Cookie  : $response->headers->setCookie(new Cookie('name', 'value', time() + 3600));`,
+    `        // JWT     : $user = $this->getUser(); // requires lexik/jwt-authentication-bundle`,
+  ].join("\n");
 
   // MapRequestPayload doesn't handle file uploads — fall back to Request for those cases
   let dtoParam: string;
@@ -131,7 +153,8 @@ function buildControllerBody(
 
   return `    ${methodSig}
     {
-${authHint}${pathParams ? pathParams + "\n" : ""}${persistHint}${fileHint}
+${authHint}${pathParams ? pathParams + "\n" : ""}${persistHint}${fileHint}${multiFileHint}${infraHints}
+
         return $this->json([
             'status' => 'ok',
             'operation' => '${endpoint.operationId}',
@@ -155,7 +178,7 @@ function generateControllerClass(
   ].filter(Boolean).join("\n");
 
   const hasFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
-    (p) => p.format === "binary",
+    (p) => p.format === "binary" || (p.type === "array" && p.items?.format === "binary"),
   );
 
   const dtoImport = dtoClass && !hasFileUpload

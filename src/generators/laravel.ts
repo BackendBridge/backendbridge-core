@@ -7,7 +7,17 @@ import { toStudly, ensureDir } from "../utils.js";
 // ─── Schema → Laravel validation rules ───────────────────────────────────────
 
 function schemaPropertyToRules(name: string, prop: EndpointSchema["properties"][string], required: boolean): string {
-  // File uploads use a dedicated rule set
+  // Multiple file uploads: type:array, items.format:binary
+  if (prop.type === "array" && prop.items?.format === "binary") {
+    const isImage = /photo|image|avatar|picture|thumbnail|cover/i.test(name);
+    const itemMimes = isImage ? "image|mimes:jpg,jpeg,png,gif,webp|max:5120" : "file|mimes:pdf,doc,docx,zip,jpg,jpeg,png|max:10240";
+    return [
+      `            '${name}' => '${required ? "required" : "nullable"}|array',`,
+      `            '${name}.*' => '${itemMimes}',`,
+    ].join("\n");
+  }
+
+  // Single file upload
   if (prop.format === "binary") {
     const fileRules: string[] = [required ? "required" : "nullable", "file"];
     const isImage = /photo|image|avatar|picture|thumbnail|cover/i.test(name);
@@ -98,13 +108,27 @@ function buildControllerBody(endpoint: EndpointContract, formRequestClass: strin
     ? `        // $validated = $request->validated();\n        // $model = MyModel::create($validated); // or $model->fill($validated)->save();\n`
     : "";
 
+  const hasMultiUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
+    (p) => p.type === "array" && p.items?.format === "binary",
+  );
   const fileHint = hasFileUpload
-    ? `        // File: $file = $request->file('field'); $path = $file->store('uploads', 'public');\n`
+    ? `        // Single upload : $file = $request->file('field'); $path = $file->store('uploads', 'public');\n`
     : "";
+  const multiFileHint = hasMultiUpload
+    ? `        // Multiple uploads: foreach ($request->file('photos') as $f) { $f->store('uploads', 'public'); }\n`
+    : "";
+
+  // Extra infrastructure hints (session, cookie, jwt)
+  const infraHints = [
+    `        // Session : $request->session()->get('key') / ->put('key', value) / ->forget('key')`,
+    `        // Cookie  : $request->cookie('name') / Cookie::queue('name', 'value', $minutes)`,
+    `        // JWT     : $user = auth('api')->user(); // requires laravel/sanctum or tymondesigns/jwt-auth`,
+  ].join("\n");
 
   return `    public function __invoke(${requestParam}): JsonResponse
     {
-${authHint}${pathParams ? pathParams + "\n" : ""}${persistHint}${fileHint}
+${authHint}${pathParams ? pathParams + "\n" : ""}${persistHint}${fileHint}${multiFileHint}${infraHints}
+
         return response()->json([
             'status' => 'ok',
             'operation' => '${endpoint.operationId}',

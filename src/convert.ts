@@ -13,6 +13,9 @@ import { generateLaravelMigrationFromClasses, generateSqlFromClasses } from "./m
 import { generatePhpUnitSkeleton } from "./phpunit-generator.js";
 import { parseOpenApiToContract } from "./openapi.js";
 import { generateDockerFiles } from "./docker-generator.js";
+import { generateLaravelSeedersAndFactories, generateSymfonyFixtures } from "./seeder-factory-generator.js";
+import { generateLaravelMiddleware, generateSymfonyMiddleware } from "./middleware-generator.js";
+import { generateLaravelMailer, generateSymfonyMailer } from "./mailer-generator.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
 function ensureDir(dirPath: string): void {
@@ -116,6 +119,42 @@ export function runConversion(
     generatedFiles.push(...migrationsOut);
   } catch (e) {
     warnings.push(`[migrations] ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // Seeders + Factories / Fixtures
+  if (options.withSeeders) {
+    try {
+      const seederFiles = to === "laravel"
+        ? generateLaravelSeedersAndFactories(contract, options.outPath)
+        : generateSymfonyFixtures(contract, options.outPath);
+      generatedFiles.push(...seederFiles);
+    } catch (e) {
+      warnings.push(`[seeders] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Middleware
+  if (options.withMiddleware) {
+    try {
+      const mwFiles = to === "laravel"
+        ? generateLaravelMiddleware(options.outPath)
+        : generateSymfonyMiddleware(options.outPath);
+      generatedFiles.push(...mwFiles);
+    } catch (e) {
+      warnings.push(`[middleware] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Mailer
+  if (options.withMailer) {
+    try {
+      const mailerFiles = to === "laravel"
+        ? generateLaravelMailer(options.outPath)
+        : generateSymfonyMailer(options.outPath);
+      generatedFiles.push(...mailerFiles);
+    } catch (e) {
+      warnings.push(`[mailer] ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // PHPUnit skeleton
