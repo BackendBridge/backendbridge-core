@@ -148,7 +148,9 @@ ${cls.properties.filter(p=>p.name!=='id').map(p=>{
         pivotColsDef.push(line);
       }
       const pivotFKs: string[] = [];
-      pivotFKs.push(`        $table->primary(['${source}_id','${target}_id']);`);
+      // pivot primary key support (custom or default composite)
+      const pivotPrimary = pivotOptions.primary || [`${source}_id`, `${target}_id`];
+      pivotFKs.push(`        $table->primary([${pivotPrimary.map(c=>`'${c}'`).join(',')}]);`);
       // pivot foreign keys with optional actions
       const pivotOnDelete = pivotOptions.onDelete;
       const pivotOnUpdate = pivotOptions.onUpdate;
@@ -159,6 +161,13 @@ ${cls.properties.filter(p=>p.name!=='id').map(p=>{
       fk1 += ';'; fk2 += ';';
       pivotFKs.push(fk1, fk2);
       if (timestamps) pivotColsDef.push('        $table->timestamps();');
+      // pivot indexes
+      const pivotIndexes = pivotOptions.indexes || [];
+      for (const idx of pivotIndexes) {
+        const cols = (idx.columns || []).map((c:string)=>`'${c}'`).join(', ');
+        if (idx.unique) pivotColsDef.push(`        $table->unique([${cols}], '${idx.name || `uniq_${pivot}_${(idx.columns||[]).join('_')}`}');`);
+        else pivotColsDef.push(`        $table->index([${cols}], '${idx.name || `idx_${pivot}_${(idx.columns||[]).join('_')}`}');`);
+      }
       const pivotMigration = `<?php
   use Illuminate\Database\Migrations\Migration;
   use Illuminate\Database\Schema\Blueprint;

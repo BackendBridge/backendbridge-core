@@ -142,7 +142,7 @@ program
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler sans commit")
-  .action((rawOptions) => {
+  .action(async (rawOptions) => {
     try {
       const sourcePath = path.resolve(rawOptions.source);
       const mappingPath = path.resolve(rawOptions.mapping);
@@ -180,7 +180,7 @@ program
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler l'extraction sans commit")
   .option("--use-php-ast", "Utiliser un parseur PHP AST (requiert php) pour l'extraction ApiPlatform", false)
-  .action((rawOptions) => {
+  .action(async (rawOptions) => {
     try {
       const from = rawOptions.from as "auto" | SupportedFramework;
       if (!["auto", "symfony", "laravel"].includes(from)) {
@@ -225,7 +225,7 @@ program
   .requiredOption("--file <path>", "Chemin du plan pipeline")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler les actions sans commit")
-  .action((rawOptions) => {
+  .action(async (rawOptions) => {
     try {
       const filePath = path.resolve(rawOptions.file);
       const result = runPipeline(filePath, Boolean(rawOptions.gitCommit), Boolean(rawOptions.dryRun));
@@ -324,7 +324,7 @@ program
   .option("--dry-run", "do not write files or commit", false)
   .option("--commit", "commit generated files", false)
   .option("--interactive", "ask interactive questions before applying rules", false)
-  .action((rawOptions) => {
+  .action(async (rawOptions) => {
     try {
       const mappingPath = path.resolve(rawOptions.mapping);
       const targetPath = path.resolve(rawOptions.target);
@@ -335,7 +335,8 @@ program
       if (interactive) {
         res = await applyMappingInteractive({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
       } else {
-        res = applyMapping({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
+        // applyMapping may be synchronous or return a Promise
+        res = await applyMapping({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
       }
 
       console.log(`Applied ${res.applied} mapping rules.`);

@@ -46,6 +46,11 @@ jobs:
           cd tools || exit 0
           if [ -f composer.json ]; then composer install --no-interaction --no-progress; fi
 
+      - name: Install phpunit (dev)
+        run: |
+          cd tools || exit 0
+          if [ -f composer.json ]; then composer require --dev --no-interaction --no-progress phpunit/phpunit ^9 || true; fi
+
       - name: Install phpstan (dev)
         run: |
           cd tools || exit 0
@@ -104,6 +109,15 @@ jobs:
           else
             echo "phpstan not installed; skipping"
             exit 1
+          fi
+
+      - name: Run phpunit on generated files (if any)
+        run: |
+          echo "Running phpunit against ci-out (if tests present)"
+          if [ -f tools/vendor/bin/phpunit ]; then
+            tools/vendor/bin/phpunit --colors=never || true
+          else
+            echo "phpunit not installed; skipping"
           fi
 
       - name: Upload ci-out artifact
