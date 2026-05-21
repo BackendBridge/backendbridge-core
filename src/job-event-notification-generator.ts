@@ -170,6 +170,11 @@ function laravelEventServiceProvider(groups: ResourceGroup[]): string {
         `        \\App\\Events\\Generated\\${g.name}UpdatedEvent::class => [\n            \\App\\Listeners\\Generated\\On${g.name}UpdatedListener::class,\n        ],`,
       );
     }
+    if (g.hasDelete) {
+      listens.push(
+        `        \\App\\Events\\Generated\\${g.name}DeletedEvent::class => [\n            \\App\\Listeners\\Generated\\On${g.name}DeletedListener::class,\n        ],`,
+      );
+    }
   }
 
   return `<?php

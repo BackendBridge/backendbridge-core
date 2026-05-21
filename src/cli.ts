@@ -46,6 +46,7 @@ program
   .option("--with-middleware", "Generer middleware auth/JWT/throttle/CORS", false)
   .option("--with-mailer", "Generer config mailer + stubs Mailable/Symfony Email", false)
   .option("--with-jobs", "Generer Jobs/Messages, Events/Listeners et Notifications", false)
+  .option("--with-auth", "Generer Policies (Laravel) ou Voters (Symfony) depuis le mapping", false)
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler la conversion sans commit")
@@ -90,6 +91,7 @@ program
           withMiddleware: Boolean(rawOptions.withMiddleware),
           withMailer: Boolean(rawOptions.withMailer),
           withJobs: Boolean(rawOptions.withJobs),
+          withAuth: Boolean(rawOptions.withAuth),
         },
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
@@ -595,6 +597,7 @@ program
   .option("--with-middleware", "Générer middleware stubs", false)
   .option("--with-mailer", "Générer config mailer + stubs", false)
   .option("--with-jobs", "Générer Jobs/Messages, Events/Listeners et Notifications", false)
+  .option("--with-auth", "Générer Policies (Laravel) ou Voters (Symfony) depuis le mapping", false)
   .option("--dry-run", "Simuler sans écrire", false)
   .action(async (rawOptions) => {
     const openApiPath = path.resolve(rawOptions.openapi);
@@ -614,11 +617,17 @@ program
       withMiddleware: Boolean(rawOptions.withMiddleware),
       withMailer: Boolean(rawOptions.withMailer),
       withJobs: Boolean(rawOptions.withJobs),
+      withAuth: Boolean(rawOptions.withAuth),
     };
 
     const results: { framework: string; files: number; warnings: number }[] = [];
+    const resolvedFrom = from === "auto" ? undefined : from;
 
     for (const fw of ["laravel", "symfony"] as SupportedFramework[]) {
+      if (resolvedFrom === fw) {
+        printWarning(`Skipping ${fw} — same as source framework`);
+        continue;
+      }
       const outPath = path.join(baseOut, fw);
       const done = startTask(`Generating ${fw} scaffold`);
       const t0 = Date.now();

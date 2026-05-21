@@ -77,4 +77,5 @@ export interface ConvertOptions {
   withMiddleware?: boolean;
   withMailer?: boolean;
   withJobs?: boolean;
+  withAuth?: boolean;
 }

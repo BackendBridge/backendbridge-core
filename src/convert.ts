@@ -17,6 +17,8 @@ import { generateLaravelSeedersAndFactories, generateSymfonyFixtures } from "./s
 import { generateLaravelMiddleware, generateSymfonyMiddleware } from "./middleware-generator.js";
 import { generateLaravelMailer, generateSymfonyMailer } from "./mailer-generator.js";
 import { generateLaravelJobsEventsNotifications, generateSymfonyJobsEventsNotifications } from "./job-event-notification-generator.js";
+import { generateLaravelPolicy, generateSymfonyVoter } from "./generators/auth.js";
+import { toStudly } from "./utils.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
 function ensureDir(dirPath: string): void {
@@ -167,6 +169,32 @@ export function runConversion(
       generatedFiles.push(...jobFiles);
     } catch (e) {
       warnings.push(`[jobs] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Auth: Policies (Laravel) or Voters (Symfony) from mapping auth rules
+  if (options.withAuth && mapping) {
+    try {
+      const resourcesSeen = new Set<string>();
+      for (const ep of contract.endpoints) {
+        const resource = ep.tags?.[0] ? toStudly(ep.tags[0]) : toStudly(ep.operationId);
+        if (!resource || resourcesSeen.has(resource)) continue;
+        resourcesSeen.add(resource);
+        // Collect auth rules from matching mapping entries
+        const authRules: string[] = [];
+        for (const [key, rule] of Object.entries(mapping.rules)) {
+          if (rule.auth?.length && key.toLowerCase().includes(resource.toLowerCase())) {
+            authRules.push(...(rule.auth as string[]));
+          }
+        }
+        if (authRules.length === 0) authRules.push("auth");
+        const authFile = to === "laravel"
+          ? generateLaravelPolicy(options.outPath, resource, authRules)
+          : generateSymfonyVoter(options.outPath, resource, authRules);
+        generatedFiles.push(authFile);
+      }
+    } catch (e) {
+      warnings.push(`[auth] ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

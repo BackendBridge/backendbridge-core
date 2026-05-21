@@ -212,7 +212,7 @@ export function extractSymfonyDtoSchemas(sourcePath: string): SymfonyDtoSchema[]
       // Pass 1: all public/protected properties — capture optional assert block + type hint + name.
       // Handles: #[Assert\...] block (0 or more lines), readonly, nullable ?, union types.
       const propBlockRegex =
-        /((?:#\[Assert\\[^\n]+\n|@Assert\\[^\n]+\n)*)[ \t]*(?:public|protected)(?:\s+readonly)?\s+(\??[\w\\]+(?:\|[\w\\]+)*)\s+\$(\w+)/gm;
+        /((?:[ \t]*#\[Assert\\[^\n]+\n|[ \t]*@Assert\\[^\n]+\n)*)[ \t]*(?:public|protected)(?:\s+readonly)?\s+(\??[\w\\]+(?:\|[\w\\]+)*)\s+\$(\w+)/gm;
       let pm: RegExpExecArray | null;
       while ((pm = propBlockRegex.exec(content)) !== null) {
         const assertBlock = pm[1] ?? "";
