@@ -4,6 +4,20 @@ import { resolveRule, type MappingDocument } from "../mapping.js";
 import type { ApiContract, EndpointContract, EndpointSchema } from "../types.js";
 import { toStudly, ensureDir } from "../utils.js";
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isListEndpoint(endpoint: EndpointContract): boolean {
+  return endpoint.method === "get" && !/\{[^}]+\}$/.test(endpoint.path.trimEnd());
+}
+
+function isShowEndpoint(endpoint: EndpointContract): boolean {
+  return endpoint.method === "get" && /\{[^}]+\}/.test(endpoint.path);
+}
+
+function resourceName(operationId: string): string {
+  return toStudly(operationId.replace(/^(get|list|show|fetch|index)_?/i, "")) || toStudly(operationId);
+}
+
 // ─── Schema → Laravel validation rules ───────────────────────────────────────
 
 function schemaPropertyToRules(name: string, prop: EndpointSchema["properties"][string], required: boolean): string {
@@ -51,6 +65,33 @@ function schemaPropertyToRules(name: string, prop: EndpointSchema["properties"][
   return `            '${name}' => '${rules.join("|")}',`;
 }
 
+// ─── JsonResource generator ───────────────────────────────────────────────────
+
+function generateJsonResource(resourceClass: string): string {
+  return `<?php
+
+namespace App\\Http\\Resources\\Generated;
+
+use Illuminate\\Http\\Request;
+use Illuminate\\Http\\Resources\\Json\\JsonResource;
+
+class ${resourceClass} extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id'         => $this->id,
+            // TODO: map all model attributes here
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
+        ];
+    }
+}
+`;
+}
+
+// ─── FormRequest generator ────────────────────────────────────────────────────
+
 function generateFormRequestClass(
   className: string,
   schema: EndpointSchema,
@@ -87,11 +128,11 @@ ${rulesLines.join("\n")}
 
 function buildControllerBody(endpoint: EndpointContract, formRequestClass: string | null, rule: ReturnType<typeof resolveRule>): string {
   const authHint = rule?.auth?.length
-    ? `        // Auth: ${rule.auth.join(", ")}\n        // $this->authorize('view', $model);\n`
+    ? `            // Auth: ${rule.auth.join(", ")}\n            // $this->authorize('view', $model);\n`
     : "";
 
   const hasFileUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
-    (p) => p.format === "binary",
+    (p) => p.format === "binary" || (p.type === "array" && p.items?.format === "binary"),
   );
 
   const requestParam = formRequestClass
@@ -100,39 +141,69 @@ function buildControllerBody(endpoint: EndpointContract, formRequestClass: strin
 
   const pathParams = (endpoint.pathParameters ?? [])
     .filter((p) => p.in === "path")
-    .map((p) => `        // Path param: $${p.name} (${p.schema?.type ?? "string"})`)
+    .map((p) => `            // Path param: $${p.name} (${p.schema?.type ?? "string"})`)
     .join("\n");
 
   const isWrite = ["post", "put", "patch"].includes(endpoint.method);
-  const persistHint = isWrite
-    ? `        // $validated = $request->validated();\n        // $model = MyModel::create($validated); // or $model->fill($validated)->save();\n`
-    : "";
+  const isDelete = endpoint.method === "delete";
+  const isList = isListEndpoint(endpoint);
+  const isShow = isShowEndpoint(endpoint);
+  const res = resourceName(endpoint.operationId);
+
+  let innerBody = "";
+
+  if (authHint) innerBody += authHint;
+  if (pathParams) innerBody += pathParams + "\n";
+
+  if (isList) {
+    innerBody += `            // Pagination\n`;
+    innerBody += `            // $items = MyModel::query()->paginate(15);\n`;
+    innerBody += `            // return ${res}Resource::collection($items);\n`;
+  } else if (isShow) {
+    innerBody += `            // $model = MyModel::findOrFail($id); // throws ModelNotFoundException → 404\n`;
+    innerBody += `            // return new ${res}Resource($model);\n`;
+  } else if (isWrite) {
+    innerBody += `            // $validated = $request->validated();\n`;
+    innerBody += `            // \\DB::beginTransaction();\n`;
+    innerBody += `            // try {\n`;
+    innerBody += `            //     $model = MyModel::create($validated);\n`;
+    innerBody += `            //     \\DB::commit();\n`;
+    innerBody += `            //     return new ${res}Resource($model);\n`;
+    innerBody += `            // } catch (\\Throwable $e) { \\DB::rollBack(); throw $e; }\n`;
+  } else if (isDelete) {
+    innerBody += `            // $model = MyModel::findOrFail($id);\n`;
+    innerBody += `            // $model->delete();\n`;
+  }
 
   const hasMultiUpload = Object.values(endpoint.requestBodySchema?.properties ?? {}).some(
     (p) => p.type === "array" && p.items?.format === "binary",
   );
-  const fileHint = hasFileUpload
-    ? `        // Single upload : $file = $request->file('field'); $path = $file->store('uploads', 'public');\n`
-    : "";
-  const multiFileHint = hasMultiUpload
-    ? `        // Multiple uploads: foreach ($request->file('photos') as $f) { $f->store('uploads', 'public'); }\n`
-    : "";
+  if (hasFileUpload && !hasMultiUpload) {
+    innerBody += `            // Single upload : $file = $request->file('field'); $path = $file->store('uploads', 'public');\n`;
+  }
+  if (hasMultiUpload) {
+    innerBody += `            // Multiple uploads: foreach ($request->file('photos') as $f) { $f->store('uploads', 'public'); }\n`;
+  }
 
-  // Extra infrastructure hints (session, cookie, jwt)
-  const infraHints = [
-    `        // Session : $request->session()->get('key') / ->put('key', value) / ->forget('key')`,
-    `        // Cookie  : $request->cookie('name') / Cookie::queue('name', 'value', $minutes)`,
-    `        // JWT     : $user = auth('api')->user(); // requires laravel/sanctum or tymondesigns/jwt-auth`,
-  ].join("\n");
+  innerBody += `\n`;
+  innerBody += `            // Session : $request->session()->get('key') / ->put('key', value) / ->forget('key')\n`;
+  innerBody += `            // Cookie  : $request->cookie('name') / Cookie::queue('name', 'value', $minutes)\n`;
+  innerBody += `            // JWT     : $user = auth('api')->user(); // requires laravel/sanctum or tymondesigns/jwt-auth\n`;
+  innerBody += `\n`;
+  innerBody += `            return response()->json(['status' => 'ok', 'operation' => '${endpoint.operationId}']);`;
 
   return `    public function __invoke(${requestParam}): JsonResponse
     {
-${authHint}${pathParams ? pathParams + "\n" : ""}${persistHint}${fileHint}${multiFileHint}${infraHints}
-
-        return response()->json([
-            'status' => 'ok',
-            'operation' => '${endpoint.operationId}',
-        ]);
+        try {
+${innerBody}
+        } catch (\\Illuminate\\Database\\Eloquent\\ModelNotFoundException) {
+            return response()->json(['message' => 'Not found'], 404);
+        } catch (\\Illuminate\\Validation\\ValidationException $e) {
+            return response()->json(['message' => 'Validation failed', 'errors' => $e->errors()], 422);
+        } catch (\\Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'Server error'], 500);
+        }
     }`;
 }
 
@@ -141,6 +212,7 @@ function generateControllerClass(
   endpoint: EndpointContract,
   formRequestClass: string | null,
   rule: ReturnType<typeof resolveRule>,
+  resourceClass: string | null,
 ): string {
   const summaryLine = endpoint.summary ? ` * ${endpoint.summary}\n` : "";
   const mappingHints = [
@@ -153,6 +225,12 @@ function generateControllerClass(
   const requestImport = formRequestClass
     ? `use App\\Http\\Requests\\Generated\\${formRequestClass};\n`
     : "";
+  const resourceImport = resourceClass
+    ? `use App\\Http\\Resources\\Generated\\${resourceClass};\n`
+    : "";
+  const dbImport = ["post", "put", "patch"].includes(endpoint.method)
+    ? `use Illuminate\\Support\\Facades\\DB;\n`
+    : "";
 
   return `<?php
 
@@ -160,7 +238,7 @@ namespace App\\Http\\Controllers\\Generated;
 
 use App\\Http\\Controllers\\Controller;
 use Illuminate\\Http\\JsonResponse;
-${formRequestClass ? "" : "use Illuminate\\Http\\Request;\n"}${requestImport}
+${formRequestClass ? "" : "use Illuminate\\Http\\Request;\n"}${requestImport}${resourceImport}${dbImport}
 class ${className} extends Controller
 {
     /**
@@ -181,6 +259,7 @@ export function generateLaravelFromContract(
   const generatedFiles: string[] = [];
   const controllersDir = path.join(outPath, "app", "Http", "Controllers", "Generated");
   const requestsDir = path.join(outPath, "app", "Http", "Requests", "Generated");
+  const resourcesDir = path.join(outPath, "app", "Http", "Resources", "Generated");
   const routesDir = path.join(outPath, "routes");
 
   ensureDir(controllersDir);
@@ -192,6 +271,8 @@ export function generateLaravelFromContract(
     "use Illuminate\\Support\\Facades\\Route;",
     "",
   ];
+
+  const generatedResources = new Set<string>();
 
   for (const endpoint of contract.endpoints) {
     const className = `${toStudly(endpoint.operationId)}Controller`;
@@ -209,8 +290,23 @@ export function generateLaravelFromContract(
       generatedFiles.push(requestPath);
     }
 
+    // Generate JsonResource for GET endpoints (deduplicated by resource name)
+    let resourceClass: string | null = null;
+    if (endpoint.method === "get") {
+      const res = resourceName(endpoint.operationId);
+      resourceClass = `${res}Resource`;
+      if (!generatedResources.has(resourceClass)) {
+        generatedResources.add(resourceClass);
+        ensureDir(resourcesDir);
+        const resourceContent = generateJsonResource(resourceClass);
+        const resourcePath = path.join(resourcesDir, `${resourceClass}.php`);
+        fs.writeFileSync(resourcePath, resourceContent, "utf8");
+        generatedFiles.push(resourcePath);
+      }
+    }
+
     // Generate controller
-    const controllerContent = generateControllerClass(className, endpoint, formRequestClass, rule);
+    const controllerContent = generateControllerClass(className, endpoint, formRequestClass, rule, resourceClass);
     const controllerPath = path.join(controllersDir, `${className}.php`);
     fs.writeFileSync(controllerPath, controllerContent, "utf8");
     generatedFiles.push(controllerPath);
