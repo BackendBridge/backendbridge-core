@@ -61,6 +61,14 @@ function extractSchemaProperties(rawSchema: unknown, componentSchemas?: Record<s
     if (v.nullable === true) prop.nullable = true;
     if (Array.isArray(v.enum)) prop.enum = v.enum as string[];
     if (typeof v.$ref === "string") prop.$ref = v.$ref;
+    // Propagate array items (needed for multiple file uploads and typed arrays)
+    if (v.type === "array" && v.items && typeof v.items === "object") {
+      const it = v.items as Record<string, unknown>;
+      prop.items = {
+        type: typeof it.type === "string" ? it.type : undefined,
+        format: typeof it.format === "string" ? it.format : undefined,
+      };
+    }
     properties[key] = prop;
   }
 
