@@ -3,6 +3,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { runConversion } from "./convert.js";
 import { runExtraction } from "./extract.js";
+import { runPipeline } from "./pipeline.js";
 import type { SupportedFramework } from "./types.js";
 
 const program = new Command();
@@ -122,6 +123,28 @@ program
         console.log(`Commit cree: ${result.commitMessage}`);
       } else {
         console.log("Aucun commit cree (dry-run ou commit desactive).");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      console.error(`Erreur: ${message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("run-plan")
+  .description("Executer un pipeline d'actions extract/convert depuis un fichier YAML/JSON")
+  .requiredOption("--file <path>", "Chemin du plan pipeline")
+  .option("--no-git-commit", "Desactiver le commit automatique")
+  .option("--dry-run", "Simuler les actions sans commit")
+  .action((rawOptions) => {
+    try {
+      const filePath = path.resolve(rawOptions.file);
+      const result = runPipeline(filePath, Boolean(rawOptions.gitCommit), Boolean(rawOptions.dryRun));
+
+      console.log(`Pipeline execute: ${result.actions} action(s)`);
+      for (const summary of result.summaries) {
+        console.log(`- ${summary}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
