@@ -2,11 +2,12 @@
 
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class GeneratedCodeTest extends TestCase
 {
-    private function generatedRoot(): string
+    private static function generatedRoot(): string
     {
         $root = getenv('BACKENDBRIDGE_GENERATED_ROOT');
         if (!is_string($root) || $root === '') {
@@ -17,9 +18,7 @@ final class GeneratedCodeTest extends TestCase
         return $realPath !== false ? $realPath : $root;
     }
 
-    /**
-     * @dataProvider providePhpFiles
-     */
+    #[DataProvider('providePhpFiles')]
     public function testGeneratedPhpFilesHaveValidSyntax(string $filePath): void
     {
         $command = escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($filePath);
@@ -32,9 +31,14 @@ final class GeneratedCodeTest extends TestCase
         $this->assertStringContainsString('No syntax errors detected', implode(PHP_EOL, $output));
     }
 
-    public function providePhpFiles(): array
+    public static function providePhpFiles(): array
     {
-        $root = $this->generatedRoot();
+        try {
+            $root = self::generatedRoot();
+        } catch (RuntimeException) {
+            return [];
+        }
+
         if (!is_dir($root)) {
             return [];
         }
@@ -58,7 +62,7 @@ final class GeneratedCodeTest extends TestCase
                 continue;
             }
 
-            $files[] = [$pathName];
+            $files[$pathName] = [$pathName];
         }
 
         return $files;

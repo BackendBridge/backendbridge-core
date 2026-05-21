@@ -41,20 +41,8 @@ jobs:
           extensions: mbstring
           coverage: none
 
-      - name: Install composer deps for tools
-        run: |
-          cd tools || exit 0
-          if [ -f composer.json ]; then composer install --no-interaction --no-progress; fi
-
-      - name: Install phpunit (dev)
-        run: |
-          cd tools || exit 0
-          if [ -f composer.json ]; then composer require --dev --no-interaction --no-progress phpunit/phpunit ^9 || true; fi
-
-      - name: Install phpstan (dev)
-        run: |
-          cd tools || exit 0
-          if [ -f composer.json ]; then composer require --dev --no-interaction --no-progress phpstan/phpstan ^1.10 || true; fi
+      - name: Install composer deps for tools (including dev)
+        run: cd tools && composer install --no-interaction --no-progress
 
       - name: Ensure node deps
         uses: actions/setup-node@v4
@@ -111,16 +99,10 @@ jobs:
             exit 1
           fi
 
-      - name: Run phpunit on generated files (if any)
+      - name: Run phpunit on generated files
         env:
           BACKENDBRIDGE_GENERATED_ROOT: ./ci-out
-        run: |
-          echo "Running phpunit against ci-out (if tests present)"
-          if [ -f tools/vendor/bin/phpunit ]; then
-            tools/vendor/bin/phpunit --configuration tools/phpunit.xml.dist --colors=never
-          else
-            echo "phpunit not installed; skipping"
-          fi
+        run: tools/vendor/bin/phpunit --configuration tools/phpunit.xml.dist --colors=never
 
       - name: Upload ci-out artifact
         uses: actions/upload-artifact@v4

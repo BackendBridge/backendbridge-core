@@ -206,15 +206,31 @@ export function extractSymfonyDtoSchemas(sourcePath: string): SymfonyDtoSchema[]
       const properties: Record<string, JsonSchemaProperty> = {};
       const required: string[] = [];
 
-      // match property blocks: block of Assert annotations followed by property declaration
-      const propBlockRegex = /((?:#\[Assert\\[^\n]+\n|@Assert\\[^\n]+\n)+)\s*(?:public|protected|private)\s+(?:\??\w+\s+)?\$(\w+)/g;
+      // Pass 1: all public/protected properties — capture optional assert block + type hint + name.
+      // Handles: #[Assert\...] block (0 or more lines), readonly, nullable ?, union types.
+      const propBlockRegex =
+        /((?:#\[Assert\\[^\n]+\n|@Assert\\[^\n]+\n)*)[ \t]*(?:public|protected)(?:\s+readonly)?\s+(\??[\w\\]+(?:\|[\w\\]+)*)\s+\$(\w+)/gm;
       let pm: RegExpExecArray | null;
       while ((pm = propBlockRegex.exec(content)) !== null) {
-        const assertBlock = pm[1];
-        const propName = pm[2];
+        const assertBlock = pm[1] ?? "";
+        const typeHint = pm[2] ?? "";
+        const propName = pm[3]!;
+
         const schema = parseSymfonyAsserts(assertBlock);
         const isRequired = assertBlock.includes("NotBlank");
-        const prop: JsonSchemaProperty = { type: schema.type ?? "string", ...schema };
+        const nullable = typeHint.startsWith("?") || typeHint.includes("null");
+
+        // Derive type from PHP type hint when assertions don't specify one.
+        if (!schema.type) {
+          const baseType = typeHint.replace(/^\?/, "").split("|")[0] ?? "string";
+          if (baseType === "int") schema.type = "integer";
+          else if (baseType === "float" || baseType === "numeric") schema.type = "number";
+          else if (baseType === "bool") schema.type = "boolean";
+          else schema.type = "string";
+        }
+
+        const prop: JsonSchemaProperty = { type: schema.type, ...schema };
+        if (nullable) prop.nullable = true;
         properties[propName] = prop;
         if (isRequired) required.push(propName);
       }
