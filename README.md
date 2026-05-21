@@ -105,7 +105,6 @@ Options importantes:
 
 Le générateur produit des fichiers `GeneratedRequest` contenant des commentaires/hints issus du mapping. Ils servent de base pour implémenter les règles de validation et les règles d'authentification spécifiques au projet.
 
-
 ## Extraction OpenAPI
 
 Extraire directement le contrat depuis le code source:
