@@ -85,6 +85,27 @@ backendbridge mapping-import \
   --commit "feat(bridge): import business mapping into laravel repo"
 ```
 
+Appliquer un mapping dans un projet cible (génère des stubs de validation/auth adaptés au framework):
+
+```bash
+backendbridge apply-mapping \
+  --mapping ./mapping/business-map.json \
+  --target ./mon-projet-laravel \
+  --framework laravel \
+  --commit "feat(mapping): apply business mapping stubs"
+```
+
+Options importantes:
+
+- `--mapping`: chemin vers le fichier JSON/YAML de mapping exporté.
+- `--target`: racine du projet cible où seront écrits les stubs (`app/Http/Requests` pour Laravel, `src/Request` pour Symfony).
+- `--framework`: `laravel` | `symfony` | `auto` (par défaut `auto`, utilise la valeur dans le mapping si présente).
+- `--dry-run`: ne rien écrire (utile pour vérification préliminaire).
+- `--commit`: committer automatiquement les fichiers générés avec un message conventionnel.
+
+Le générateur produit des fichiers `GeneratedRequest` contenant des commentaires/hints issus du mapping. Ils servent de base pour implémenter les règles de validation et les règles d'authentification spécifiques au projet.
+
+
 ## Extraction OpenAPI
 
 Extraire directement le contrat depuis le code source:
