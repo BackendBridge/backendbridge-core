@@ -30,7 +30,6 @@ function writeStub(filePath: string, content: string) {
 }
 
 function makeLaravelRequestStub(dtoPath: string | undefined, rule: unknown) {
-  const dtoNote = dtoPath ? `// DTO candidate: ${dtoPath}\n` : "";
   const validations = (rule as any)?.validation ?? [];
   // If validations are structured objects like { field, rules: [...] }, map them
   const structured = Array.isArray(validations) && validations.length > 0 && typeof validations[0] === "object" && validations[0].field;
@@ -71,7 +70,6 @@ class GeneratedRequest extends FormRequest
 }
 
 function makeSymfonyRequestStub(dtoPath: string | undefined, rule: unknown) {
-  const dtoNote = dtoPath ? `// DTO candidate: ${dtoPath}\n` : "";
   const validations = (rule as any)?.validation ?? [];
   const structured = Array.isArray(validations) && validations.length > 0 && typeof validations[0] === "object" && validations[0].field;
 
@@ -233,7 +231,7 @@ export async function applyMappingInteractive(
         message: `Apply this rule?`,
         initial: true,
       },
-    ] as any);
+    ]) as { dto: string; validation: string; auth: string; apply: boolean };
 
     if (!answer.apply) continue;
 

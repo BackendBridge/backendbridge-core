@@ -2,18 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveRule, type MappingDocument } from "../mapping.js";
 import type { ApiContract } from "../types.js";
-
-function toStudly(value: string): string {
-  return value
-    .split(/[^a-zA-Z0-9]/)
-    .filter(Boolean)
-    .map((segment) => segment[0].toUpperCase() + segment.slice(1).toLowerCase())
-    .join("");
-}
-
-function ensureDir(dirPath: string): void {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
+import { toStudly, ensureDir } from "../utils.js";
 
 export function generateLaravelFromContract(
   contract: ApiContract,

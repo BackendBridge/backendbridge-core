@@ -11,7 +11,7 @@ vi.mock('../src/php-class-parser.js', () => ({
         { name: 'id', type: 'int' },
         { name: 'a', type: 'string', column: { type: 'string' } },
         { name: 'b', type: 'string', column: { type: 'string' } },
-        { name: 'user', relation: { type: 'ManyToOne', target: 'App\\Entity\\User', joinColumn: { onDelete: 'cascade', onUpdate: 'restrict' } }, name: 'user' }
+        { name: 'user', relation: { type: 'ManyToOne', target: 'App\\Entity\\User', joinColumn: { onDelete: 'cascade', onUpdate: 'restrict' } } }
       ],
       indexes: [ { columns: ['a','b'], name: 'idx_order_a_b', unique: false } ]
     }

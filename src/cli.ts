@@ -5,10 +5,12 @@ import { runConversion } from "./convert.js";
 import { runDoctor } from "./doctor.js";
 import { runExtraction } from "./extract.js";
 import { runMappingExport, runMappingImport } from "./mapping.js";
+import { runMappingEditor } from "./mapping-editor.js";
 import { runPipeline } from "./pipeline.js";
 import { runRelease } from "./release.js";
 import type { SupportedFramework } from "./types.js";
 import { applyMapping, applyMappingInteractive } from "./mapping-applier.js";
+import { convertSecurityConfig } from "./config-converter.js";
 
 const program = new Command();
 
@@ -165,6 +167,21 @@ program
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
+      console.error(`Erreur: ${message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("mapping-edit")
+  .description("Editeur interactif minimal pour un fichier mapping JSON")
+  .requiredOption("--mapping <path>", "Chemin du mapping JSON")
+  .action(async (rawOptions) => {
+    try {
+      const mappingPath = path.resolve(rawOptions.mapping);
+      await runMappingEditor(mappingPath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error(`Erreur: ${message}`);
       process.exitCode = 1;
     }
@@ -348,6 +365,26 @@ program
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
+      console.error(`Erreur: ${message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command('convert-config')
+  .description('Convertir un fichier de configuration (ex: security.yaml -> config/auth.php)')
+  .requiredOption('--in <path>', 'Fichier d entree (yaml/php)')
+  .requiredOption('--out <path>', 'Fichier de sortie')
+  .option('--from <framework>', 'Framework source: symfony|laravel', 'symfony')
+  .action((rawOptions) => {
+    try {
+      const inPath = path.resolve(rawOptions.in);
+      const outPath = path.resolve(rawOptions.out);
+      const from = rawOptions.from === 'laravel' ? 'laravel' : 'symfony';
+      const res = convertSecurityConfig(inPath, outPath, from as 'symfony' | 'laravel');
+      console.log(`Converted config -> ${res}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error(`Erreur: ${message}`);
       process.exitCode = 1;
     }

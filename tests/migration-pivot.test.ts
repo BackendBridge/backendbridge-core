@@ -29,7 +29,8 @@ describe('pivot generation advanced', () => {
       const content = fs.readFileSync(pivot, 'utf8');
       expect(content).toContain("$table->unsignedBigInteger('article_id')");
       expect(content).toContain("$table->unsignedBigInteger('tag_id')");
-      expect(content).toContain("$table->integer('position'") || expect(content).toContain("$table->integer('position')");
+      expect(content).toMatch(/\$table->integer\('position'\)/);
+
       expect(content).toContain('$table->timestamps()');
     }
     fs.rmSync(tmp, { recursive: true, force: true });

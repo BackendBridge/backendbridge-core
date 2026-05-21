@@ -146,7 +146,7 @@ export function generateSymfonyEntityFromPhpClass(parsed: { file: string; class:
         const targetSimple = op.relation.target.split('\\').pop();
         if (targetSimple !== currentSimple) continue;
         const rel = op.relation.type;
-        const otherSimple = other.class.split('\\').pop();
+        const otherSimple = other.class.split('\\').pop() ?? 'Related';
         if (rel === 'ManyToOne') {
           propsCode += `    /**\n     * @ORM\\OneToMany(targetEntity=\\"${otherSimple}\\", mappedBy=\\"${op.name}\\")\n     */\n    private $${otherSimple.toLowerCase()}s;\n\n`;
         } else if (rel === 'OneToMany') {

@@ -14,8 +14,8 @@ vi.mock('../src/php-class-parser.js', () => ({
         { name: 'views', type: 'int', column: { type: 'int', nullable: true, default: 0 } },
         { name: 'published', type: 'bool', column: { type: 'bool', nullable: false, default: false } },
         { name: 'createdAt', type: 'datetime', column: { type: 'datetime', nullable: false } },
-        { name: 'owner', relation: { type: 'ManyToOne', target: 'App\\Entity\\User' }, name: 'owner' },
-        { name: 'tags', relation: { type: 'ManyToMany', target: 'App\\Entity\\Tag' }, name: 'tags' }
+        { name: 'owner', relation: { type: 'ManyToOne', target: 'App\\Entity\\User' } },
+        { name: 'tags', relation: { type: 'ManyToMany', target: 'App\\Entity\\Tag' } }
       ]
     }
   ]

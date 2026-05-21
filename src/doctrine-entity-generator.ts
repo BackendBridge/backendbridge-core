@@ -12,11 +12,15 @@ function shortClass(fqcn?: string) {
 export function generateDoctrineEntities(sourcePath: string, outDir: string): string[] {
   const parsed = parsePhpClasses(sourcePath);
   const generated: string[] = [];
+  // helper map: short class name -> parsed class
+  const classByShort = new Map(parsed.map(c => [shortClass(c.class), c] as const));
   for (const cls of parsed) {
     const className = cls.class.split('\\').pop() || 'Generated';
-    const ns = cls.namespace || 'App\\Entity';
+    const nsParts = cls.class.split('\\').slice(0, -1);
+    const ns = cls.namespace ?? (nsParts.length ? nsParts.join('\\') : 'App\\Entity');
     const lines: string[] = [];
     lines.push('<?php');
+    lines.push('declare(strict_types=1);');
     lines.push('');
     lines.push(`namespace ${ns};`);
     lines.push('');
@@ -40,10 +44,33 @@ export function generateDoctrineEntities(sourcePath: string, outDir: string): st
       }
 
       if (p.relation && p.relation.type) {
-        const rel = p.relation.type.toLowerCase();
+        const rel = (p.relation.type || '').toLowerCase();
         const targetShort = shortClass(p.relation.target);
-        const mappedBy = p.relation.mappedBy ? `, mappedBy: '${p.relation.mappedBy}'` : '';
-        const inversedBy = p.relation.inversedBy ? `, inversedBy: '${p.relation.inversedBy}'` : '';
+        // resolve mappedBy/inversedBy: prefer explicit parser values, else try to infer from target class
+        let computedMappedBy: string | null = p.relation.mappedBy || null;
+        let computedInversedBy: string | null = p.relation.inversedBy || null;
+        const targetClass = classByShort.get(targetShort);
+        if (targetClass) {
+          const back = targetClass.properties.find(q => q.relation && shortClass(q.relation.target) === shortClass(cls.class));
+          if (back && back.relation && back.relation.type) {
+            const backRel = back.relation.type.toLowerCase();
+            if (rel.includes('manytoone') && backRel.includes('onetomany')) {
+              computedInversedBy = computedInversedBy || back.name;
+            } else if (rel.includes('onetomany') && backRel.includes('manytoone')) {
+              computedMappedBy = computedMappedBy || back.name;
+            } else if (rel.includes('manytomany') && backRel.includes('manytomany')) {
+              // choose a sensible default: mark current side as owning (inversedBy) referencing back property
+              computedInversedBy = computedInversedBy || back.name;
+            } else if (rel.includes('oneToOne'.toLowerCase()) && backRel.includes('oneToOne'.toLowerCase())) {
+              // for one-to-one, prefer inversedBy on owning side if available
+              computedInversedBy = computedInversedBy || back.name;
+            }
+          }
+        }
+        const mappedBy = computedMappedBy ? `, mappedBy: '${computedMappedBy}'` : '';
+        const inversedBy = computedInversedBy ? `, inversedBy: '${computedInversedBy}'` : '';
+        const cascade = (p.relation && (p.relation as any).cascade && (p.relation as any).cascade.length) ? `, cascade: [${(p.relation as any).cascade.map((c: string)=>`'${c}'`).join(', ')}]` : '';
+        const orphanRemoval = (p.relation && (p.relation as any).orphanRemoval) ? `, orphanRemoval: true` : '';
         if (rel === 'manytoone') {
           lines.push(`    #[ORM\\ManyToOne(targetEntity: '${targetShort}'${inversedBy})]`);
           if (p.relation.joinColumn) {
@@ -51,21 +78,22 @@ export function generateDoctrineEntities(sourcePath: string, outDir: string): st
             const name = jc.name ? `name: '${jc.name}', ` : '';
             const ref = jc.referencedColumnName ? `referencedColumnName: '${jc.referencedColumnName}', ` : '';
             const onDelete = jc.onDelete ? `, options: ['onDelete' => '${jc.onDelete}']` : '';
-            lines.push(`    #[ORM\\JoinColumn(${name}${ref}nullable: ${jc.nullable ? 'true' : 'false'}${onDelete})]`);
+            const isNullable = jc.nullable !== false;
+            lines.push(`    #[ORM\\JoinColumn(${name}${ref}nullable: ${isNullable ? 'true' : 'false'}${onDelete})]`);
           }
           lines.push(`    private ?${targetShort} $${propName} = null;`);
           lines.push('');
           continue;
         }
-        if (rel === 'oneto many' || rel === 'onetomany') {
-          lines.push(`    #[ORM\\OneToMany(mappedBy: '${p.relation.mappedBy || ''}', targetEntity: '${targetShort}')]`);
+        if (rel.includes('onetomany')) {
+          lines.push(`    #[ORM\\OneToMany(mappedBy: '${computedMappedBy || ''}', targetEntity: '${targetShort}'${cascade}${orphanRemoval})]`);
           lines.push(`    private Collection $${propName};`);
           lines.push('');
           continue;
         }
         if (rel === 'manytomany') {
-          const join = p.relation.joinTable ? `, joinTable: '${p.relation.joinTable}'` : '';
-          lines.push(`    #[ORM\\ManyToMany(targetEntity: '${targetShort}'${mappedBy}${inversedBy}${join})]`);
+          const join = (p.relation as any).joinTable ? `, joinTable: '${(p.relation as any).joinTable}'` : '';
+          lines.push(`    #[ORM\\ManyToMany(targetEntity: '${targetShort}'${mappedBy}${inversedBy}${cascade}${join})]`);
           lines.push(`    private Collection $${propName};`);
           lines.push('');
           continue;

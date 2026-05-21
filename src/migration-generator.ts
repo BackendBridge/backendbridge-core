@@ -44,11 +44,10 @@ return new class extends Migration
 ${cls.properties.filter(p=>p.name!=='id').map(p=>{
       // ManyToOne relation creates FK column
       if (p.relation && p.relation.type && p.relation.type.toLowerCase() === 'manytoone') {
-        const target = p.relation.target ? p.relation.target.split('\\').pop().toLowerCase() : p.name.replace(/_id$/, '');
-        const jc = p.relation && p.relation.joinColumn ? p.relation.joinColumn : {};
+        const target = p.relation.target ? (p.relation.target.split('\\').pop() ?? '').toLowerCase() : p.name.replace(/_id$/, '');
+        const jc = p.relation.joinColumn ?? {};
         const colName = jc.name || (p.name.endsWith('_id') ? p.name : `${target}_id`);
-        // build fk with optional joinColumn actions
-        const referenced = jc.referencedColumnName || 'id';
+        const referenced = jc.referencedColumnName ?? 'id';
         let fk = `            $table->foreign('${colName}')->references('${referenced}')->on('${target}s')`;
         if (jc.onDelete) fk += `->onDelete('${jc.onDelete}')`;
         if (jc.onUpdate) fk += `->onUpdate('${jc.onUpdate}')`;
@@ -58,9 +57,12 @@ ${cls.properties.filter(p=>p.name!=='id').map(p=>{
       }
 
       // if joinColumn options exist, append ->onDelete()/->onUpdate() to foreign key later
-      const jc = p.relation && p.relation.joinColumn ? p.relation.joinColumn : null;
-      if (jc) {
-        let fk = `            $table->foreign('${p.name.endsWith('_id') ? p.name : `${(p.relation.target||p.name).split('\\').pop().toLowerCase()}_id`}')->references('id')->on('${(p.relation.target||p.name).split('\\').pop().toLowerCase()}s')`;
+      const jc = p.relation?.joinColumn ?? null;
+      if (jc && p.relation) {
+        const relTarget = p.relation.target ?? p.name;
+        const fkCol = p.name.endsWith('_id') ? p.name : `${(relTarget.split('\\').pop() ?? relTarget).toLowerCase()}_id`;
+        const fkTable = `${(relTarget.split('\\').pop() ?? relTarget).toLowerCase()}s`;
+        let fk = `            $table->foreign('${fkCol}')->references('id')->on('${fkTable}')`;
         if (jc.onDelete) fk += `->onDelete('${jc.onDelete}')`;
         if (jc.onUpdate) fk += `->onUpdate('${jc.onUpdate}')`;
         fk += ';';
@@ -130,19 +132,18 @@ ${cls.properties.filter(p=>p.name!=='id').map(p=>{
     for (const p of cls.properties) {
       if (p.relation && p.relation.type && p.relation.type.toLowerCase() === 'manytomany') {
       const source = className.toLowerCase();
-      const target = p.relation.target ? p.relation.target.split('\\').pop().toLowerCase() : p.name.replace(/s$/, '');
-      const pivotOptions = p.relation.pivot || {};
-      const extraCols = pivotOptions.columns || [];
-      const timestamps = pivotOptions.timestamps !== false; // default true
-      // pivot table name: alphabetical join of singulars
-      const pivotParts = [source, target].map(s => s.replace(/s$/,''));
+      const target = p.relation.target ? (p.relation.target.split('\\').pop() ?? '').toLowerCase() : p.name.replace(/s$/, '');
+      const pivotOptions = p.relation.pivot ?? {};
+      const extraCols = pivotOptions.columns ?? [];
+      const timestamps = pivotOptions.timestamps !== false;
+      const pivotParts = [source, target].map(s => s.replace(/s$/, ''));
       const pivot = pivotParts.slice().sort().join('_');
       const pivotColsDef = [`        $table->unsignedBigInteger('${source}_id');`, `        $table->unsignedBigInteger('${target}_id');`];
       for (const c of extraCols) {
         const len = c.length ? `, ${c.length}` : '';
         const nullable = c.nullable ? '->nullable()' : '';
         const method = mapTypeToLaravelColumn(c.type);
-        let line = `        $table->${method}('${c.name}'${len})${nullable}`;
+        let line = `        $table->${method}('${c.name ?? 'col'}'${len})${nullable}`;
         if (c.default !== undefined) line += `->default(${JSON.stringify(c.default)})`;
         line += ';';
         pivotColsDef.push(line);
@@ -210,11 +211,10 @@ export function generateSqlFromClasses(sourcePath: string, outDir: string): stri
     for (const p of cls.properties) {
       if (p.name === 'id') continue;
       if (p.relation && p.relation.type && p.relation.type.toLowerCase() === 'manytoone') {
-        const target = p.relation.target ? p.relation.target.split('\\').pop().toLowerCase() : p.name.replace(/_id$/, '');
+        const target = p.relation.target ? (p.relation.target.split('\\').pop() ?? '').toLowerCase() : p.name.replace(/_id$/, '');
         const colName = p.name.endsWith('_id') ? p.name : `${target}_id`;
         cols.push(`${colName} INT`);
-        // support joinColumn options if present
-        const jc = p.relation.joinColumn || {};
+        const jc = p.relation.joinColumn ?? {};
         let fkSql = `ALTER TABLE ${tableName} ADD CONSTRAINT fk_${tableName}_${colName} FOREIGN KEY (${colName}) REFERENCES ${target}s(id)`;
         if (jc.onDelete) fkSql += ` ON DELETE ${jc.onDelete.toUpperCase()}`;
         if (jc.onUpdate) fkSql += ` ON UPDATE ${jc.onUpdate.toUpperCase()}`;
@@ -251,9 +251,9 @@ export function generateSqlFromClasses(sourcePath: string, outDir: string): stri
     for (const p of cls.properties) {
       if (p.relation && p.relation.type && p.relation.type.toLowerCase() === 'manytomany') {
         const source = className.toLowerCase();
-        const target = p.relation.target ? p.relation.target.split('\\').pop().toLowerCase() : p.name.replace(/s$/, '');
-        const pivotOptions = p.relation.pivot || {};
-        const extraCols = pivotOptions.columns || [];
+        const target = p.relation.target ? (p.relation.target.split('\\').pop() ?? '').toLowerCase() : p.name.replace(/s$/, '');
+        const pivotOptions = p.relation.pivot ?? {};
+        const extraCols = pivotOptions.columns ?? [];
         const timestamps = pivotOptions.timestamps !== false;
         const pivot = [source, target].map((value) => value.replace(/s$/, '')).sort().join('_');
         const pivotColumns: string[] = [
@@ -265,7 +265,7 @@ export function generateSqlFromClasses(sourcePath: string, outDir: string): stri
           const sqlType = mapTypeToSql(c.type);
           const nullable = c.nullable ? 'NULL' : 'NOT NULL';
           const defaultVal = c.default !== undefined ? ` DEFAULT '${c.default}'` : '';
-          pivotColumns.push(`${c.name} ${sqlType} ${nullable}${defaultVal}`);
+          pivotColumns.push(`${c.name ?? 'col'} ${sqlType} ${nullable}${defaultVal}`);
         }
 
         if (timestamps) {

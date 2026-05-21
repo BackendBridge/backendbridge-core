@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 
 export interface ParsedColumn {
+  name?: string;
   type?: string;
   length?: number;
   nullable?: boolean;
@@ -19,6 +20,7 @@ export interface ParsedIndex {
 export interface ParsedJoinColumn {
   name?: string;
   referencedColumnName?: string;
+  nullable?: boolean;
   onDelete?: string;
   onUpdate?: string;
 }
@@ -37,6 +39,10 @@ export interface ParsedRelation {
   target?: string;
   joinColumn?: ParsedJoinColumn;
   pivot?: ParsedRelationPivot;
+  mappedBy?: string | null;
+  inversedBy?: string | null;
+  cascade?: string[] | null;
+  orphanRemoval?: boolean | null;
 }
 
 export interface ParsedProperty {
@@ -49,6 +55,7 @@ export interface ParsedProperty {
 export interface ParsedClass {
   file: string;
   class: string;
+  namespace?: string;
   properties: ParsedProperty[];
   indexes?: ParsedIndex[];
 }

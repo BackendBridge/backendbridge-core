@@ -4,6 +4,7 @@ import { dump } from "js-yaml";
 import { appendActionLog } from "./action-log.js";
 import { commitGeneratedFiles } from "./commit.js";
 import { resolveFramework } from "./framework.js";
+import { parsePhpFileForApiPlatform } from "./php-ast.js";
 import type { SupportedFramework } from "./types.js";
 
 interface ExtractOptions {
@@ -91,16 +92,6 @@ function extractFromLaravel(sourcePath: string): ExtractEndpoint[] {
   return uniqueByMethodPath(endpoints);
 }
 
-// helper to import PHP AST parser wrapper lazily
-function awaitImportPhpAst() {
-  // We keep this synchronous-looking by returning the module sync if present, else throw
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require("./php-ast.js");
-  } catch (err) {
-    throw new Error("PHP AST parser not available");
-  }
-}
 
 function extractFromSymfony(sourcePath: string): ExtractEndpoint[] {
   const controllersDir = path.join(sourcePath, "src", "Controller");
@@ -183,8 +174,6 @@ function extractApiPlatformFromSymfony(sourcePath: string, usePhpAst = false): E
       // If requested and `php` is available, try using PHP-based AST parser for more robust detection
       if (usePhpAst) {
         try {
-          // require dynamic module to avoid adding dependency when not used
-          const { parsePhpFileForApiPlatform } = awaitImportPhpAst();
           const phpResults = parsePhpFileForApiPlatform(filePath);
           for (const r of phpResults) {
             endpoints.push(r as ExtractEndpoint);
