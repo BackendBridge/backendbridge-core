@@ -47,6 +47,10 @@ program
   .option("--with-mailer", "Generer config mailer + stubs Mailable/Symfony Email", false)
   .option("--with-jobs", "Generer Jobs/Messages, Events/Listeners et Notifications", false)
   .option("--with-auth", "Generer Policies (Laravel) ou Voters (Symfony) depuis le mapping", false)
+  .option("--with-repositories", "Generer Repository/Interface par resource", false)
+  .option("--with-commands", "Generer Console Commands (Artisan/Symfony) par resource", false)
+  .option("--with-translations", "Generer fichiers lang en/fr", false)
+  .option("--with-extras", "Generer Guard+Provider+Collection (Laravel) ou EventSubscriber (Symfony)", false)
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler la conversion sans commit")
@@ -92,6 +96,10 @@ program
           withMailer: Boolean(rawOptions.withMailer),
           withJobs: Boolean(rawOptions.withJobs),
           withAuth: Boolean(rawOptions.withAuth),
+          withRepositories: Boolean(rawOptions.withRepositories),
+          withCommands: Boolean(rawOptions.withCommands),
+          withTranslations: Boolean(rawOptions.withTranslations),
+          withExtras: Boolean(rawOptions.withExtras),
         },
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
@@ -598,6 +606,10 @@ program
   .option("--with-mailer", "Générer config mailer + stubs", false)
   .option("--with-jobs", "Générer Jobs/Messages, Events/Listeners et Notifications", false)
   .option("--with-auth", "Générer Policies (Laravel) ou Voters (Symfony) depuis le mapping", false)
+  .option("--with-repositories", "Générer Repository/Interface par resource", false)
+  .option("--with-commands", "Générer Console Commands par resource", false)
+  .option("--with-translations", "Générer fichiers lang en/fr", false)
+  .option("--with-extras", "Générer Guard+Provider+Collection (Laravel) ou EventSubscriber (Symfony)", false)
   .option("--dry-run", "Simuler sans écrire", false)
   .action(async (rawOptions) => {
     const openApiPath = path.resolve(rawOptions.openapi);
@@ -618,6 +630,10 @@ program
       withMailer: Boolean(rawOptions.withMailer),
       withJobs: Boolean(rawOptions.withJobs),
       withAuth: Boolean(rawOptions.withAuth),
+      withRepositories: Boolean(rawOptions.withRepositories),
+      withCommands: Boolean(rawOptions.withCommands),
+      withTranslations: Boolean(rawOptions.withTranslations),
+      withExtras: Boolean(rawOptions.withExtras),
     };
 
     const results: { framework: string; files: number; warnings: number }[] = [];

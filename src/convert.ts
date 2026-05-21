@@ -18,6 +18,10 @@ import { generateLaravelMiddleware, generateSymfonyMiddleware } from "./middlewa
 import { generateLaravelMailer, generateSymfonyMailer } from "./mailer-generator.js";
 import { generateLaravelJobsEventsNotifications, generateSymfonyJobsEventsNotifications } from "./job-event-notification-generator.js";
 import { generateLaravelPolicy, generateSymfonyVoter } from "./generators/auth.js";
+import { generateSymfonyRepositories, generateLaravelRepositories } from "./generators/repository.js";
+import { generateSymfonyEventSubscribers, generateLaravelGuard, generateLaravelServiceProvider, generateLaravelResourceCollections } from "./generators/extras.js";
+import { generateLaravelCommands, generateSymfonyCommands } from "./generators/commands.js";
+import { generateLaravelTranslations, generateSymfonyTranslations } from "./generators/translation.js";
 import { toStudly } from "./utils.js";
 import type { ConvertOptions, SupportedFramework } from "./types.js";
 
@@ -195,6 +199,57 @@ export function runConversion(
       }
     } catch (e) {
       warnings.push(`[auth] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Repositories
+  if (options.withRepositories) {
+    try {
+      const repoFiles = to === "laravel"
+        ? generateLaravelRepositories(contract, options.outPath)
+        : generateSymfonyRepositories(contract, options.outPath);
+      generatedFiles.push(...repoFiles);
+    } catch (e) {
+      warnings.push(`[repositories] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Console commands
+  if (options.withCommands) {
+    try {
+      const cmdFiles = to === "laravel"
+        ? generateLaravelCommands(contract, options.outPath)
+        : generateSymfonyCommands(contract, options.outPath);
+      generatedFiles.push(...cmdFiles);
+    } catch (e) {
+      warnings.push(`[commands] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Translations
+  if (options.withTranslations) {
+    try {
+      const langFiles = to === "laravel"
+        ? generateLaravelTranslations(contract, options.outPath)
+        : generateSymfonyTranslations(contract, options.outPath);
+      generatedFiles.push(...langFiles);
+    } catch (e) {
+      warnings.push(`[translations] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Extras: EventSubscriber (Symfony), Guard + ServiceProvider + ResourceCollection (Laravel)
+  if (options.withExtras) {
+    try {
+      if (to === "symfony") {
+        generatedFiles.push(...generateSymfonyEventSubscribers(contract, options.outPath));
+      } else {
+        generatedFiles.push(...generateLaravelGuard(options.outPath));
+        generatedFiles.push(...generateLaravelServiceProvider(contract, options.outPath));
+        generatedFiles.push(...generateLaravelResourceCollections(contract, options.outPath));
+      }
+    } catch (e) {
+      warnings.push(`[extras] ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
