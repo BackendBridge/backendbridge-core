@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { dump, load as yamlLoad } from "js-yaml";
 import { appendActionLog } from "./action-log.js";
 import { commitGeneratedFiles } from "./commit.js";
@@ -560,6 +561,15 @@ export function defaultExtractCommitMessage(from: SupportedFramework): string {
   return `feat(bridge): extract openapi contract from ${from}`;
 }
 
+function phpAvailable(): boolean {
+  try {
+    execFileSync("php", ["--version"], { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function runExtraction(
   options: ExtractOptions,
   shouldCommit: boolean,
@@ -567,13 +577,16 @@ export function runExtraction(
 ): ExtractResult {
   const from = resolveFramework(options.from, options.sourcePath);
 
+  // Use PHP AST when explicitly requested OR when php binary is available (better accuracy)
+  const useAst = options.usePhpAst === true || (options.usePhpAst !== false && phpAvailable());
+
   const rawEndpoints =
     from === "laravel"
       ? extractFromLaravel(options.sourcePath)
       : uniqueByMethodPath([
           ...extractFromSymfony(options.sourcePath),
           ...extractFromSymfonyYaml(options.sourcePath),
-          ...extractApiPlatformFromSymfony(options.sourcePath, Boolean(options.usePhpAst)),
+          ...extractApiPlatformFromSymfony(options.sourcePath, useAst),
         ]);
 
   if (!rawEndpoints.length) {

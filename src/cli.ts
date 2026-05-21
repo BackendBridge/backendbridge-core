@@ -48,7 +48,8 @@ program
   .option("--with-middleware", "Generer middleware auth/JWT/throttle/CORS", false)
   .option("--with-mailer", "Generer config mailer + stubs Mailable/Symfony Email", false)
   .option("--with-jobs", "Generer Jobs/Messages, Events/Listeners et Notifications", false)
-  .option("--with-auth", "Generer Policies (Laravel) ou Voters (Symfony) depuis le mapping", false)
+  .option("--with-auth", "Generer Policies (Laravel) ou Voters (Symfony) (auto-extrait de la source si pas de mapping)", false)
+  .option("--with-services", "Generer stubs de Service depuis l'analyse des controllers source", false)
   .option("--with-repositories", "Generer Repository/Interface par resource", false)
   .option("--with-commands", "Generer Console Commands (Artisan/Symfony) par resource", false)
   .option("--with-translations", "Generer fichiers lang en/fr", false)
@@ -98,6 +99,7 @@ program
           withMailer: Boolean(rawOptions.withMailer),
           withJobs: Boolean(rawOptions.withJobs),
           withAuth: Boolean(rawOptions.withAuth),
+          withServices: Boolean(rawOptions.withServices),
           withRepositories: Boolean(rawOptions.withRepositories),
           withCommands: Boolean(rawOptions.withCommands),
           withTranslations: Boolean(rawOptions.withTranslations),
@@ -608,6 +610,7 @@ program
   .option("--with-mailer", "Générer config mailer + stubs", false)
   .option("--with-jobs", "Générer Jobs/Messages, Events/Listeners et Notifications", false)
   .option("--with-auth", "Générer Policies (Laravel) ou Voters (Symfony) depuis le mapping", false)
+  .option("--with-services", "Générer stubs de Service depuis l'analyse des controllers source", false)
   .option("--with-repositories", "Générer Repository/Interface par resource", false)
   .option("--with-commands", "Générer Console Commands par resource", false)
   .option("--with-translations", "Générer fichiers lang en/fr", false)
@@ -632,6 +635,7 @@ program
       withMailer: Boolean(rawOptions.withMailer),
       withJobs: Boolean(rawOptions.withJobs),
       withAuth: Boolean(rawOptions.withAuth),
+      withServices: Boolean(rawOptions.withServices),
       withRepositories: Boolean(rawOptions.withRepositories),
       withCommands: Boolean(rawOptions.withCommands),
       withTranslations: Boolean(rawOptions.withTranslations),
@@ -731,7 +735,8 @@ program
       ["withMiddleware",   "Middleware"],
       ["withMailer",       "Mailer"],
       ["withJobs",         "Jobs / Events / Listeners"],
-      ["withAuth",         "Auth (Policies / Voters)"],
+      ["withAuth",         "Auth (Policies / Voters — auto-extrait)"],
+      ["withServices",     "Services (stubs depuis injection source)"],
       ["withRepositories", "Repositories"],
       ["withCommands",     "Console Commands"],
       ["withTranslations", "Translations"],
@@ -776,7 +781,8 @@ program
           withMiddleware:   detected.withMiddleware,
           withMailer:       detected.withMailer,
           withJobs:         detected.withJobs,
-          withAuth:         detected.withAuth && Boolean(rawOptions.mapping),
+          withAuth:         detected.withAuth,
+          withServices:     detected.withServices,
           withRepositories: detected.withRepositories,
           withCommands:     detected.withCommands,
           withTranslations: detected.withTranslations,

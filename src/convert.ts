@@ -18,6 +18,8 @@ import { generateLaravelMiddleware, generateSymfonyMiddleware } from "./middlewa
 import { generateLaravelMailer, generateSymfonyMailer } from "./mailer-generator.js";
 import { generateLaravelJobsEventsNotifications, generateSymfonyJobsEventsNotifications } from "./job-event-notification-generator.js";
 import { generateLaravelPolicy, generateSymfonyVoter } from "./generators/auth.js";
+import { extractServicesFromSource, generateLaravelServices, generateSymfonyServices } from "./service-generator.js";
+import { generateSecurityFromSource } from "./security-extractor.js";
 import { generateSymfonyRepositories, generateLaravelRepositories } from "./generators/repository.js";
 import { generateSymfonyEventSubscribers, generateLaravelGuard, generateLaravelServiceProvider, generateLaravelResourceCollections } from "./generators/extras.js";
 import { generateLaravelCommands, generateSymfonyCommands } from "./generators/commands.js";
@@ -176,6 +178,16 @@ export function runConversion(
     }
   }
 
+  // Auth: auto-extract from source Voters/Policies (no mapping needed)
+  if (options.withAuth && !mapping) {
+    try {
+      const authFiles = generateSecurityFromSource(options.sourcePath, from, options.outPath, to);
+      generatedFiles.push(...authFiles);
+    } catch (e) {
+      warnings.push(`[auth-auto] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   // Auth: Policies (Laravel) or Voters (Symfony) from mapping auth rules
   if (options.withAuth && mapping) {
     try {
@@ -199,6 +211,19 @@ export function runConversion(
       }
     } catch (e) {
       warnings.push(`[auth] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Service stubs (from source controller injection analysis)
+  if (options.withServices) {
+    try {
+      const services = extractServicesFromSource(options.sourcePath, from);
+      const svcFiles = to === "laravel"
+        ? generateLaravelServices(services, options.outPath)
+        : generateSymfonyServices(services, options.outPath);
+      generatedFiles.push(...svcFiles);
+    } catch (e) {
+      warnings.push(`[services] ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

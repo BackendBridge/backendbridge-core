@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { SupportedFramework } from "./types.js";
+import { hasSecurityInSource } from "./security-extractor.js";
 
 export interface DetectedFeatures {
   withSeeders: boolean;
@@ -8,6 +9,7 @@ export interface DetectedFeatures {
   withMailer: boolean;
   withJobs: boolean;
   withAuth: boolean;
+  withServices: boolean;
   withRepositories: boolean;
   withCommands: boolean;
   withTranslations: boolean;
@@ -77,8 +79,13 @@ function detectLaravel(src: string): DetectedFeatures {
     hasDir(src, "app", "Listeners");
   if (withJobs) reasons.withJobs = "app/Jobs, app/Events ou app/Listeners détecté";
 
-  const withAuth = hasDir(src, "app", "Policies");
-  if (withAuth) reasons.withAuth = "app/Policies détecté";
+  const withAuth = hasSecurityInSource(src, "laravel");
+  if (withAuth) reasons.withAuth = "app/Policies détecté — règles extraites automatiquement";
+
+  const withServices =
+    hasDir(src, "app", "Services") ||
+    hasPhpMatching(path.join(src, "app", "Http", "Controllers"), /Controller\.php$/);
+  if (withServices) reasons.withServices = "app/Services ou controllers avec injection détectés";
 
   const withRepositories =
     hasDir(src, "app", "Repositories") ||
@@ -104,7 +111,7 @@ function detectLaravel(src: string): DetectedFeatures {
 
   return {
     withSeeders, withMiddleware, withMailer, withJobs, withAuth,
-    withRepositories, withCommands, withTranslations, withExtras,
+    withServices, withRepositories, withCommands, withTranslations, withExtras,
     withDocker, withTests, reasons,
   };
 }
@@ -133,10 +140,13 @@ function detectSymfony(src: string): DetectedFeatures {
     hasDir(src, "src", "EventListener");
   if (withJobs) reasons.withJobs = "src/Message, src/Event ou src/EventListener détecté";
 
-  const withAuth =
-    hasDir(src, "src", "Security") ||
-    hasPhpMatching(path.join(src, "src", "Security"), /Voter\.php$/);
-  if (withAuth) reasons.withAuth = "src/Security (Voter) détecté";
+  const withAuth = hasSecurityInSource(src, "symfony");
+  if (withAuth) reasons.withAuth = "src/Security (Voters) détecté — règles extraites automatiquement";
+
+  const withServices =
+    hasDir(src, "src", "Service") ||
+    hasDir(src, "src", "Services");
+  if (withServices) reasons.withServices = "src/Service(s) détecté — stubs générés dans la cible";
 
   const withRepositories = hasDir(src, "src", "Repository");
   if (withRepositories) reasons.withRepositories = "src/Repository détecté";
@@ -160,7 +170,7 @@ function detectSymfony(src: string): DetectedFeatures {
 
   return {
     withSeeders, withMiddleware, withMailer, withJobs, withAuth,
-    withRepositories, withCommands, withTranslations, withExtras,
+    withServices, withRepositories, withCommands, withTranslations, withExtras,
     withDocker, withTests, reasons,
   };
 }
