@@ -115,7 +115,7 @@ jobs:
         run: |
           echo "Running phpunit against ci-out (if tests present)"
           if [ -f tools/vendor/bin/phpunit ]; then
-            tools/vendor/bin/phpunit --colors=never || true
+            tools/vendor/bin/phpunit --colors=never
           else
             echo "phpunit not installed; skipping"
           fi
