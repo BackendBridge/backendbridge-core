@@ -172,7 +172,8 @@ function extractApiPlatformFromSymfony(sourcePath: string): ExtractEndpoint[] {
       const basePath = `/${className.toLowerCase()}s`;
 
       const uriTemplateRegex = /uriTemplate:\s*['\"]([^'\"]+)['\"]/g;
-      const operationRegex = /#\[(GetCollection|Get|Post|Put|Patch|Delete)\(([^\)]*)\)\]/g;
+      // match attribute usages like #[Get(...)] or namespaced attributes
+      const operationRegex = /#\[[^\]]*(GetCollection|Get|Post|Put|Patch|Delete)\s*\(([^\)]*)\)/g;
       let hasExplicitOperation = false;
 
       const declaredPaths: string[] = [];
@@ -207,6 +208,58 @@ function extractApiPlatformFromSymfony(sourcePath: string): ExtractEndpoint[] {
         });
       }
 
+      // also detect usages like new Get(...), possibly inside itemOperations/collectionOperations arrays
+      const newOpRegex = /new\s+(?:[A-Za-z0-9_\\\\]+\\\\)?(GetCollection|Get|Post|Put|Patch|Delete)\s*\(([^\)]*)\)/g;
+      let newOpMatch: RegExpExecArray | null;
+      while ((newOpMatch = newOpRegex.exec(content)) !== null) {
+        hasExplicitOperation = true;
+        const op = newOpMatch[1];
+        const opArgs = newOpMatch[2] ?? "";
+
+        let method = "get";
+        if (op === "GetCollection" || op === "Get") method = "get";
+        if (op === "Post") method = "post";
+        if (op === "Put") method = "put";
+        if (op === "Patch") method = "patch";
+        if (op === "Delete") method = "delete";
+
+        const uriFromOpMatch = /uriTemplate:\s*['\"]([^'\"]+)['\"]/.exec(opArgs);
+        const routePath = normalizePath(uriFromOpMatch?.[1] ?? declaredPaths[0] ?? basePath);
+
+        endpoints.push({
+          method,
+          path: routePath,
+          operationId: `${method}_${className.toLowerCase()}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+        });
+      }
+
+      // detect collectionOperations/itemOperations blocks with inline new Get/Post definitions
+      const opsBlockRegex = /(collectionOperations|itemOperations)\s*:\s*\[([^\]]+)\]/g;
+      let opsBlockMatch: RegExpExecArray | null;
+      while ((opsBlockMatch = opsBlockRegex.exec(content)) !== null) {
+        const block = opsBlockMatch[2];
+        let innerMatch: RegExpExecArray | null;
+        while ((innerMatch = newOpRegex.exec(block)) !== null) {
+          hasExplicitOperation = true;
+          const op = innerMatch[1];
+          const opArgs = innerMatch[2] ?? "";
+          let method = "get";
+          if (op === "GetCollection" || op === "Get") method = "get";
+          if (op === "Post") method = "post";
+          if (op === "Put") method = "put";
+          if (op === "Patch") method = "patch";
+          if (op === "Delete") method = "delete";
+
+          const uriFromOpMatch = /uriTemplate:\s*['\"]([^'\"]+)['\"]/.exec(opArgs);
+          const routePath = normalizePath(uriFromOpMatch?.[1] ?? declaredPaths[0] ?? basePath);
+
+          endpoints.push({
+            method,
+            path: routePath,
+            operationId: `${method}_${className.toLowerCase()}_${routePath.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+          });
+        }
+      }
       if (!hasExplicitOperation) {
         endpoints.push({
           method: "get",
