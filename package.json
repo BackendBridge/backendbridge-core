@@ -19,7 +19,7 @@
     "openapi",
     "migration"
   ],
-  "author": "",
+  "author": "Ronaldo AWADEME <ronaldo.awademe@epitech.eu>",
   "license": "MIT",
   "type": "module",
   "files": [

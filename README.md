@@ -32,6 +32,47 @@ backendbridge create --framework symfony --name mon-api --type api --out ./proje
 
 Options `--type`: `api` (défaut), `webapp`, `skeleton`.
 
+## Migration intelligente (commande recommandée)
+
+La commande `migrate` détecte automatiquement ce qui existe dans le projet source et ne génère que ce qui est pertinent — pas besoin de passer tous les flags manuellement.
+
+```bash
+backendbridge migrate \
+  --from symfony \
+  --source ./mon-projet-symfony \
+  --out ./generated
+```
+
+Exemple de sortie :
+
+```
+  Source détectée : symfony  →  Cible : laravel
+
+  Features détectées dans le projet source :
+    ✔  Repositories       — src/Repository détecté
+    ✔  Console Commands   — src/Command détecté
+    ✔  Translations       — translations/ détecté
+    ✔  Auth (Voters)      — src/Security détecté
+    ✔  Jobs / Events      — src/EventListener détecté
+    ✔  Extras             — src/EventSubscriber détecté
+    ✘  Mailer             (ignoré, absent du projet source)
+    ✘  Docker             (ignoré, absent du projet source)
+```
+
+Options disponibles :
+
+| Flag | Description |
+|------|-------------|
+| `--from` | Framework source : `symfony` \| `laravel` \| `auto` (défaut) |
+| `--to` | Framework cible (auto = opposé du source) |
+| `--source` | Dossier source du projet |
+| `--out` | Dossier de sortie (défaut : `./generated`) |
+| `--openapi` | Contrat OpenAPI — extrait automatiquement si absent |
+| `--mapping` | Fichier JSON de mapping métier (active `--with-auth`) |
+| `--dry-run` | Simule sans écrire |
+| `--commit` | Message de commit |
+| `--no-git-commit` | Désactive le commit automatique |
+
 ## Générer le scaffold dans les deux frameworks
 
 ```bash
@@ -85,6 +126,11 @@ Options disponibles:
 | `--with-middleware` | Génère middleware JWT/auth/throttle/CORS |
 | `--with-mailer` | Génère stubs Mailable (Laravel) ou Mailer service (Symfony) |
 | `--with-jobs` | Génère Jobs/Messages, Events/Listeners, Notifications |
+| `--with-auth` | Génère Policies (Laravel) ou Voters (Symfony) depuis le mapping |
+| `--with-repositories` | Génère Repository + Interface par ressource |
+| `--with-commands` | Génère Console Commands (Artisan / Symfony) par ressource |
+| `--with-translations` | Génère fichiers lang en/fr (PHP ou YAML) |
+| `--with-extras` | Génère Guard+Provider+Collection (Laravel) ou EventSubscriber (Symfony) |
 | `--with-docker` | Génère Dockerfile + docker-compose.yml |
 | `--with-tests` | Génère squelette PHPUnit |
 | `--dry-run` | Simule sans écrire |
