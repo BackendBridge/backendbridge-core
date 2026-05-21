@@ -84,10 +84,17 @@ program
         console.log(`- ${path.relative(process.cwd(), file)}`);
       }
 
+      if (result.warnings.length) {
+        console.warn(`\nAvertissements (${result.warnings.length}):`);
+        for (const w of result.warnings) {
+          console.warn(`  ⚠ ${w}`);
+        }
+      }
+
       if (result.committed) {
-        console.log(`Commit cree: ${result.commitMessage}`);
+        console.log(`\nCommit cree: ${result.commitMessage}`);
       } else {
-        console.log("Aucun commit cree (dry-run ou commit desactive).");
+        console.log("\nAucun commit cree (dry-run ou commit desactive).");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";

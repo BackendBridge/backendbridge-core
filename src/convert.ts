@@ -24,6 +24,7 @@ export interface ConvertResult {
   generatedFiles: string[];
   committed: boolean;
   commitMessage?: string;
+  warnings: string[];
 }
 
 export function runConversion(
@@ -87,56 +88,49 @@ export function runConversion(
   });
   generatedFiles.push(actionLogFile);
 
-  // convert .env from source to target framework and write to outPath/.env.generated
+  const warnings: string[] = [];
+
+  // .env conversion
   try {
     const envOut = convertEnvFile({ from, to, sourcePath: options.sourcePath, outPath: options.outPath, outFileName: options.envOutName });
-    if (envOut) {
-      generatedFiles.push(envOut);
-    }
+    if (envOut) generatedFiles.push(envOut);
   } catch (e) {
-    // don't fail conversion on env conversion errors
+    warnings.push(`[env] ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Generate models/entities and migrations from source classes
+  // Models / entities from PHP classes (requires `php`)
   try {
     const models = convertEntitiesToModels(options.sourcePath, options.outPath, to);
     generatedFiles.push(...models);
   } catch (e) {
-    // ignore
+    warnings.push(`[entities] ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // Migrations
   try {
-    const migrations = to === 'laravel' ? generateLaravelMigrationFromClasses(options.sourcePath, path.join(options.outPath, 'database', 'migrations')) : generateSqlFromClasses(options.sourcePath, path.join(options.outPath, 'migrations'));
-    generatedFiles.push(...migrations);
+    const migrationsOut = to === "laravel"
+      ? generateLaravelMigrationFromClasses(options.sourcePath, path.join(options.outPath, "database", "migrations"))
+      : generateSqlFromClasses(options.sourcePath, path.join(options.outPath, "migrations"));
+    generatedFiles.push(...migrationsOut);
   } catch (e) {
-    // ignore
+    warnings.push(`[migrations] ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // PHPUnit skeleton
   if (options.withTests) {
     try {
       const phpunitFiles = generatePhpUnitSkeleton(options.outPath);
       generatedFiles.push(...phpunitFiles);
     } catch (e) {
-      // ignore
+      warnings.push(`[phpunit] ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
   if (!options.dryRun && shouldCommit) {
     const message = commitMessage ?? defaultCommitMessage(from, to);
     commitGeneratedFiles(generatedFiles, message, options.sourcePath);
-    return {
-      from,
-      to,
-      generatedFiles,
-      committed: true,
-      commitMessage: message,
-    };
+    return { from, to, generatedFiles, committed: true, commitMessage: message, warnings };
   }
 
-  return {
-    from,
-    to,
-    generatedFiles,
-    committed: false,
-  };
+  return { from, to, generatedFiles, committed: false, warnings };
 }
