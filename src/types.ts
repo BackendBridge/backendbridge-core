@@ -25,4 +25,5 @@ export interface ConvertOptions {
   extractOutPath?: string;
   targetVersion?: string;
   dryRun: boolean;
+  usePhpAst?: boolean;
 }

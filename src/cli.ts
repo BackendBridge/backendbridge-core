@@ -27,6 +27,7 @@ program
   .option("--source <path>", "Dossier source du projet API", process.cwd())
   .option("--out <path>", "Dossier de sortie de la conversion", "./generated")
   .option("--extract-if-missing", "Extraire automatiquement OpenAPI si le fichier n'existe pas")
+  .option("--use-php-ast", "Utiliser un parseur PHP AST (requiert php) pour l'extraction ApiPlatform", false)
   .option(
     "--extract-out <path>",
     "Chemin de sortie OpenAPI lors d'une extraction auto (par defaut: --openapi)",
@@ -62,6 +63,7 @@ program
           openApiPath,
           mappingPath,
           extractIfMissing: Boolean(rawOptions.extractIfMissing),
+          usePhpAst: Boolean(rawOptions.usePhpAst),
           extractOutPath: rawOptions.extractOut ? path.resolve(rawOptions.extractOut) : undefined,
           targetVersion: rawOptions.targetVersion,
           dryRun: Boolean(rawOptions.dryRun),
@@ -175,6 +177,7 @@ program
   .option("--commit <message>", "Message de commit conventionnel")
   .option("--no-git-commit", "Desactiver le commit automatique")
   .option("--dry-run", "Simuler l'extraction sans commit")
+  .option("--use-php-ast", "Utiliser un parseur PHP AST (requiert php) pour l'extraction ApiPlatform", false)
   .action((rawOptions) => {
     try {
       const from = rawOptions.from as "auto" | SupportedFramework;
