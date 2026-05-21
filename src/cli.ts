@@ -8,6 +8,7 @@ import { runMappingExport, runMappingImport } from "./mapping.js";
 import { runPipeline } from "./pipeline.js";
 import { runRelease } from "./release.js";
 import type { SupportedFramework } from "./types.js";
+import { applyMapping } from "./mapping-applier.js";
 
 const program = new Command();
 
@@ -302,6 +303,34 @@ program
       console.log(`Changelog: ${path.relative(process.cwd(), result.changelogPath)}`);
       console.log(`Commit/tag: ${result.committed ? "ok" : "dry-run"}`);
       console.log(`Publish npm: ${result.published ? "ok" : "skip"}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      console.error(`Erreur: ${message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("apply-mapping")
+  .description("Apply mapping rules to generate validation/auth stubs in target project")
+  .requiredOption("-m, --mapping <path>", "mapping file path (json/yaml)")
+  .requiredOption("-t, --target <path>", "target project root to write stubs into")
+  .option("-f, --framework <framework>", "target framework: laravel|symfony|auto", "auto")
+  .option("--dry-run", "do not write files or commit", false)
+  .option("--commit", "commit generated files", false)
+  .action((rawOptions) => {
+    try {
+      const mappingPath = path.resolve(rawOptions.mapping);
+      const targetPath = path.resolve(rawOptions.target);
+      const framework = rawOptions.framework as "laravel" | "symfony" | "auto";
+
+      const res = applyMapping({ mappingPath, targetPath, framework, dryRun: Boolean(rawOptions.dryRun) }, Boolean(rawOptions.commit));
+
+      console.log(`Applied ${res.applied} mapping rules.`);
+      if (res.generatedFiles && res.generatedFiles.length) {
+        console.log("Generated files:");
+        for (const f of res.generatedFiles) console.log(`- ${path.relative(process.cwd(), f)}`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
       console.error(`Erreur: ${message}`);
