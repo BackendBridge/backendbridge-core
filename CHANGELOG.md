@@ -10,6 +10,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-06-04
+
+### Added
+- **3-layer logic translation pipeline** — AST → regex → LLM, all three working in sequence:
+  - **PHP AST transformer** (`tools/transform_logic.php`) — nikic/PHP-Parser `NodeVisitor` that handles multi-line chains and nested expressions regex cannot match. Covers responses, auth, request, Eloquent/Doctrine finders, QueryBuilder chains, result fetching, DB facades, logging, cache, messaging, getters/setters.
+  - **80+ regex rules** in `logic-translator.ts` — query chains (orderBy, limit, skip/take, whereIn, groupBy), aggregates (count/sum/avg/max/min), soft deletes (withTrashed/restore/forceDelete), DB::transaction closures, raw queries, Cache::forget/has, Doctrine QB → Eloquent, getter/setter → property access.
+  - **OpenRouter LLM fallback** (`src/openrouter.ts`) — for residual patterns (≤80 lines). Free models only, key from `.env`.
+- **LLM models** (free tier, OpenRouter):
+  - Primary: `google/gemma-4-31b-it:free` (Gemma 4 31B — 256K ctx, strong on code)
+  - Fallback 1: `nvidia/nemotron-3-super-120b-a12b:free` (Nemotron 3 Super — 1M ctx, SWE-Bench Verified)
+  - Fallback 2: `openai/gpt-oss-120b:free` (GPT-OSS 120B)
+  - Explain: `openai/gpt-oss-20b:free`
+- **`--all` / `-A` flag** on `convert` — enables all optional generators in one flag.
+- **`--with-repos`** short alias for `--with-repositories`.
+- **Short flags** on `migrate` and `convert`: `-s` (source), `-o` (out), `-n` (dry-run).
+- **`translatePhpBodyAsync()`** — async path in logic-translator for LLM fallback.
+- **Open source project files** — `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, GitHub issue/PR templates, `repository`/`homepage`/`bugs` in `package.json`.
+
+### Changed
+- `runConversion()` and `runPipeline()` are now `async` (required for LLM fallback).
+- `enhanceControllersWithSourceLogic()` is now `async`.
+- CLI: `program.alias("bb")` — `bb` can now be used as a shorter entry point.
+- README fully rewritten in English: short flags documented, logic translation table expanded, LLM model table added, limits updated.
+- `--use-php-ast` flag removed from `convert` (AST is now always automatic when `php` is available).
+
+### Fixed
+- Double-prefixing bug (`e.e.column`) when AST and regex both ran on the same output.
+- `withTrashed`/`onlyTrashed` in AST visitor now produce a named marker method instead of silently passing through.
+- All async test functions updated (`it()` → `async it()`).
+
+---
+
 ## [0.2.0] — 2025-05-21
 
 ### Added

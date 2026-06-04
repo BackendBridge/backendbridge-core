@@ -3,23 +3,18 @@
 > **Convert Symfony APIs to Laravel — and back — in minutes.**
 
 ```bash
-backendbridge migrate --from symfony --source ./my-app
+backendbridge migrate --from symfony -s ./my-app
 ```
 
 ```
-✔  Controllers + Routes
-✔  DTOs / FormRequests
-✔  Repositories
-✔  Auth (Policies / Voters)
-✔  Services stubs
-✔  Translations (en / fr)
-✔  Migrations (MySQL · PostgreSQL · SQLite)
-✔  Docker
-✔  PHPUnit skeleton
+✔  Controllers + Routes          ✔  Auth (Policies / Voters)
+✔  DTOs / FormRequests           ✔  Services stubs
+✔  Repositories                  ✔  Translations (en / fr)
+✔  Migrations (MySQL · PG · SQLite)  ✔  Docker + PHPUnit
 ```
 
-OpenAPI-driven backend migration toolkit for Symfony and Laravel.
-Real PHP AST parsing (nikic/PHP-Parser), versioned IR, full CI coverage.
+OpenAPI-driven backend migration toolkit for Symfony and Laravel.  
+Real PHP AST parsing (nikic/PHP-Parser) · Versioned IR · 3-layer logic translation (AST → regex → LLM) · 161 tests · Full CI.
 
 ---
 
@@ -29,183 +24,210 @@ Real PHP AST parsing (nikic/PHP-Parser), versioned IR, full CI coverage.
 npm install -g backendbridge
 ```
 
-Ou depuis les sources :
+Or from source:
 
 ```bash
-npm install && npm run build && npm link
+git clone https://github.com/BackendBridge/backendbridge-core.git
+cd backendbridge-core && npm install && npm run build && npm link
+```
+
+Set your [OpenRouter](https://openrouter.ai) key for AI-assisted logic translation (optional, free models):
+
+```bash
+echo "OPEN_ROUTER_KEY=sk-or-..." >> .env
 ```
 
 ---
 
-## Démarrage rapide — une commande suffit
+## Quickstart — one command
 
 ```bash
-backendbridge migrate --from symfony --source ./mon-projet-symfony
+backendbridge migrate --from symfony -s ./my-symfony-app
 ```
 
-BackendBridge analyse le projet source, affiche ce qu'il a détecté, et génère le scaffold complet dans `./generated/laravel/` :
+BackendBridge scans the source project, shows what it detected, and generates the full scaffold in `./generated/laravel/`:
 
 ```
-  Source détectée : symfony  →  Cible : laravel
+  Source: symfony  →  Target: laravel
 
-  Features détectées dans le projet source :
-    ✔  Repositories       — src/Repository détecté
-    ✔  Console Commands   — src/Command détecté
-    ✔  Translations       — translations/ détecté
-    ✔  Auth (Policies)    — src/Security (Voters) détecté — règles extraites automatiquement
-    ✔  Services           — src/Service(s) détecté — stubs générés dans la cible
-    ✔  Jobs / Events      — src/EventListener détecté
-    ✔  Extras             — src/EventSubscriber détecté
-    ✘  Mailer             (ignoré, absent du projet source)
-    ✘  Docker             (ignoré, absent du projet source)
+  Detected features:
+    ✔  Repositories       — src/Repository found
+    ✔  Console Commands   — src/Command found
+    ✔  Translations       — translations/ found
+    ✔  Auth (Policies)    — src/Security (Voters) found — rules extracted automatically
+    ✔  Services           — src/Service(s) found — stubs generated
+    ✔  Jobs / Events      — src/EventListener found
+    ✔  Extras             — src/EventSubscriber found
+    ✘  Mailer             (skipped — not found in source)
+    ✘  Docker             (skipped — not found in source)
 ```
 
-**Rien à configurer.** BackendBridge lit le code source et décide tout seul.
+**Zero config.** BackendBridge reads the source and decides everything.
 
-### Options de la commande migrate
+### `migrate` options
 
-| Flag | Description |
-|------|-------------|
-| `--from` | Framework source : `symfony` \| `laravel` \| `auto` (défaut) |
-| `--to` | Framework cible (auto = opposé du source) |
-| `--source` | Dossier source du projet (défaut : répertoire courant) |
-| `--out` | Dossier de sortie (défaut : `./generated`) |
-| `--openapi` | Contrat OpenAPI — extrait automatiquement si absent |
-| `--mapping` | Fichier JSON de mapping métier (active l'auth depuis les règles mapping) |
-| `--dry-run` | Simule sans écrire |
-| `--commit` | Message de commit |
-| `--no-git-commit` | Désactive le commit automatique |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--from` | | Source framework: `symfony` \| `laravel` \| `auto` (default) |
+| `--to` | | Target framework (auto = opposite of source) |
+| `--source` | `-s` | Source project folder (default: cwd) |
+| `--out` | `-o` | Output folder (default: `./generated`) |
+| `--openapi` | | OpenAPI contract — auto-extracted if absent |
+| `--mapping` | | JSON business mapping file |
+| `--dry-run` | `-n` | Simulate without writing |
+| `--commit` | | Commit message |
+| `--no-git-commit` | | Disable auto-commit |
 
 ---
 
-## Ce qui est généré automatiquement
+## What gets generated
 
-### Détection intelligente
+### Smart detection
 
-BackendBridge scanne le projet source pour décider quoi générer :
+BackendBridge scans the source to decide what to generate:
 
-| Ce qui est détecté dans la source | Ce qui est généré dans la cible |
-|-----------------------------------|---------------------------------|
-| `src/Repository/` ou `app/Repositories/` | Repository + Interface + ServiceProvider |
-| `src/Security/*Voter.php` ou `app/Policies/` | Policy (Laravel) ou Voter (Symfony) — **règles extraites du code** |
-| `src/Service/` ou `app/Services/` | Stubs de Service avec mêmes signatures |
-| `src/Command/` ou `app/Console/Commands/` | Console Commands (Artisan ou `#[AsCommand]`) |
-| `translations/` ou `lang/` | Fichiers de traduction en/fr |
-| `src/EventSubscriber/` ou `app/Listeners/` | EventSubscribers ou Listeners |
-| `app/Jobs/` ou `src/Message/` | Jobs + Events + Listeners + Notifications |
+| Detected in source | Generated in target |
+|---|---|
+| `src/Repository/` or `app/Repositories/` | Repository + Interface + ServiceProvider |
+| `src/Security/*Voter.php` or `app/Policies/` | Policy (Laravel) or Voter (Symfony) — **rules extracted from code** |
+| `src/Service/` or `app/Services/` | Service stubs with same signatures |
+| `src/Command/` or `app/Console/Commands/` | Console Commands (Artisan or `#[AsCommand]`) |
+| `translations/` or `lang/` | Translation files en/fr |
+| `src/EventSubscriber/` or `app/Listeners/` | EventSubscribers or Listeners |
+| `app/Jobs/` or `src/Message/` | Jobs + Events + Listeners + Notifications |
 | `app/Http/Middleware/` | Middleware JWT/auth/throttle/CORS |
-| `app/Mail/` ou `src/Mailer/` | Stubs Mailable ou Mailer service |
-| `database/seeders/` ou `src/DataFixtures/` | Seeders + Factories ou Fixtures Doctrine |
+| `app/Mail/` or `src/Mailer/` | Mailable stubs or Mailer service |
+| `database/seeders/` or `src/DataFixtures/` | Seeders + Factories or Doctrine Fixtures |
 | `Dockerfile` | Dockerfile + docker-compose.yml |
-| `tests/` ou `phpunit.xml` | Squelette PHPUnit |
+| `tests/` or `phpunit.xml` | PHPUnit skeleton |
 
-### Ce qui est toujours généré
+### Always generated
 
-Peu importe les flags, `migrate` génère toujours :
+Regardless of flags, `migrate` always generates:
 
-- **Controllers** avec try/catch (404, 422, 500), pagination, transactions DB
-- **FormRequests** (Laravel) / **DTOs avec Assert** (Symfony) depuis le schema OpenAPI
-- **JsonResources** (Laravel) pour chaque ressource exposée en GET
-- **Routes** (`routes/api.php` ou attributs `#[Route]`)
-- **Modèles Eloquent** / **Entités Doctrine** depuis les classes PHP source
-- **Migrations** SQL (compatible MySQL, PostgreSQL, SQLite)
-- **Fichier `.env`** adapté au framework cible
+- **Controllers** with try/catch (404, 422, 500), pagination, DB transactions
+- **FormRequests** (Laravel) / **DTOs with Assert** (Symfony) from OpenAPI schema
+- **JsonResources** (Laravel) for each GET resource
+- **Routes** (`routes/api.php` or `#[Route]` attributes)
+- **Eloquent Models** / **Doctrine Entities** from source PHP classes
+- **SQL Migrations** (MySQL, PostgreSQL, SQLite compatible)
+- **`.env`** file adapted to the target framework
 
 ---
 
-## Commandes avancées
+## Logic translation (3-layer pipeline)
 
-### `convert` — contrôle total avec flags manuels
+The `migrate` command automatically translates framework-specific patterns:
 
-Pour les cas où tu veux choisir exactement ce qui est généré :
+| Layer | Engine | What it handles |
+|---|---|---|
+| 1 | **PHP AST** (nikic/PHP-Parser) | Multi-line chains, nested calls — e.g. `Post::where()->orderBy()->paginate()` across multiple lines |
+| 2 | **Regex rules** (80+ patterns) | Single-line patterns — fallback when PHP unavailable |
+| 3 | **LLM** (OpenRouter, free) | Residual patterns neither AST nor regex can reach |
 
-```bash
-backendbridge convert \
-  --from symfony \
-  --to laravel \
-  --source ./mon-projet-symfony \
-  --openapi ./contracts/api.yaml \
-  --out ./generated/laravel \
-  --with-auth \
-  --with-services \
-  --with-repositories \
-  --with-commands \
-  --with-translations
-```
+**LLM models used** (all free, via `OPEN_ROUTER_KEY` in `.env`):
 
-Tous les flags disponibles :
+| Role | Model |
+|---|---|
+| Primary translation | Gemma 4 31B IT (`google/gemma-4-31b-it:free`) |
+| Fallback 1 | NVIDIA Nemotron 3 Super 120B (`nvidia/nemotron-3-super-120b-a12b:free`) |
+| Fallback 2 | GPT-OSS 120B (`openai/gpt-oss-120b:free`) |
+| Explanations | GPT-OSS 20B (`openai/gpt-oss-20b:free`) |
 
-| Flag | Description |
-|------|-------------|
-| `--with-auth` | Policies (Laravel) ou Voters (Symfony) — auto-extrait de la source si pas de mapping |
-| `--with-services` | Stubs de Service depuis l'analyse des controllers source |
-| `--with-repositories` | Repository + Interface par ressource |
-| `--with-commands` | Console Commands (Artisan / Symfony) par ressource |
-| `--with-translations` | Fichiers lang en/fr (PHP ou YAML) |
-| `--with-extras` | Guard+Provider+Collection (Laravel) ou EventSubscriber (Symfony) |
-| `--with-jobs` | Jobs/Messages, Events/Listeners, Notifications |
-| `--with-middleware` | Middleware JWT/auth/throttle/CORS |
-| `--with-mailer` | Stubs Mailable (Laravel) ou Mailer service (Symfony) |
-| `--with-seeders` | Seeders + Factories (Laravel) ou Fixtures Doctrine (Symfony) |
-| `--with-docker` | Dockerfile + docker-compose.yml |
-| `--with-tests` | Squelette PHPUnit |
-| `--mapping` | Fichier JSON de mapping métier (enrichit les règles auth) |
-| `--dry-run` | Simule sans écrire |
-| `--extract-if-missing` | Extrait OpenAPI automatiquement si le fichier est absent |
+Example translations:
 
-### `build` — générer Laravel ET Symfony depuis un contrat OpenAPI
+| Laravel | Symfony |
+|---|---|
+| `return response()->json($data)` | `return $this->json($data)` |
+| `auth()->user()` | `$this->getUser()` |
+| `Post::where('active', true)->orderByDesc('created_at')->paginate(15)` | Doctrine QueryBuilder chain |
+| `$post->save()` | `$em->persist($post); $em->flush()` |
+| `DB::transaction(fn() => ...)` | `$em->wrapInTransaction(fn() => ...)` |
+| `Cache::get('key')` | `$this->cache->getItem('key')->get()` |
+| `Log::info(...)` | `$this->logger->info(...)` |
+| `dispatch(new Job(...))` | `$this->messageBus->dispatch(new Job(...))` |
 
-```bash
-backendbridge build \
-  --openapi ./contracts/api.yaml \
-  --out ./generated \
-  --with-services \
-  --with-repositories \
-  --with-docker
-```
+And the reverse (Symfony → Laravel). Unrecognized patterns are kept as `// TODO:` comments with the original source.
 
-Génère `./generated/laravel/` et `./generated/symfony/` simultanément.
+---
 
-### `extract` — extraire le contrat OpenAPI depuis le code source
+## Advanced commands
+
+### `convert` — full manual control
+
+Use when you want to pick exactly what gets generated:
 
 ```bash
-backendbridge extract \
-  --from auto \
-  --source ./mon-projet-laravel \
-  --out ./contracts/api.yaml
+# Short form
+backendbridge convert --to laravel --openapi ./api.yaml -s ./my-symfony -o ./out --all
+
+# Selective
+backendbridge convert --to laravel --openapi ./api.yaml -s ./my-symfony \
+  --with-auth --with-services --with-repos --with-translations
 ```
 
-Détecte automatiquement Laravel (`Route::...`) et Symfony (`#[Route]`, ApiPlatform). **PHP est utilisé automatiquement** pour un parsing AST précis quand il est disponible — pas besoin de `--use-php-ast`.
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--all` | `-A` | Enable all optional generators |
+| `--with-auth` | | Policies (Laravel) or Voters (Symfony) |
+| `--with-services` | | Service stubs from source controller analysis |
+| `--with-repos` | | Repository + Interface per resource |
+| `--with-commands` | | Console Commands (Artisan / Symfony) |
+| `--with-translations` | | Translation files en/fr |
+| `--with-jobs` | | Jobs / Events / Listeners / Notifications |
+| `--with-middleware` | | Middleware JWT/auth/throttle/CORS |
+| `--with-mailer` | | Mailable stubs or Mailer service |
+| `--with-seeders` | | Seeders + Factories or Doctrine Fixtures |
+| `--with-extras` | | Guard+Provider+Collection or EventSubscriber |
+| `--with-tests` | | PHPUnit skeleton |
+| `--with-docker` | | Dockerfile + docker-compose.yml |
+| `--with-source-logic` | | Translate source logic (AST + LLM) |
+| `--source` | `-s` | Source project folder |
+| `--out` | `-o` | Output folder |
+| `--dry-run` | `-n` | Simulate without writing |
+| `--extract-if-missing` | | Auto-extract OpenAPI if file absent |
+| `--mapping` | | JSON business mapping file |
 
-### `doctor` — auditer la compatibilité avant conversion
+### `build` — generate both Laravel AND Symfony from one OpenAPI contract
 
 ```bash
-backendbridge doctor \
-  --from auto \
-  --source ./mon-projet-symfony \
-  --report ./reports/doctor.json
+backendbridge build --openapi ./contracts/api.yaml -o ./generated --with-services --with-docker
 ```
 
-Remonte : framework détecté, nombre de routes, couverture ApiPlatform, risques de compatibilité.
+Generates `./generated/laravel/` and `./generated/symfony/` simultaneously.
 
-### `mapping-export` / `apply-mapping` — mapping métier
+### `extract` — extract OpenAPI from source code
 
 ```bash
-# Exporter les règles métier depuis la source
-backendbridge mapping-export \
-  --from symfony \
-  --source ./mon-projet-symfony \
-  --openapi ./contracts/api.yaml \
-  --out ./mapping/business-map.json
-
-# Appliquer dans le projet cible
-backendbridge apply-mapping \
-  --mapping ./mapping/business-map.json \
-  --target ./mon-projet-laravel \
-  --framework laravel
+backendbridge extract --from auto -s ./my-laravel-app --out ./contracts/api.yaml
 ```
 
-### `run-plan` — pipeline d'actions
+Auto-detects Laravel (`Route::...`) and Symfony (`#[Route]`, ApiPlatform). Uses PHP AST automatically when available.
+
+### `doctor` — audit compatibility before converting
+
+```bash
+backendbridge doctor -s ./my-symfony-app --report ./reports/doctor.json
+```
+
+Returns: detected framework, route count, ApiPlatform coverage, compatibility risks.
+
+### `diff` — preview without writing
+
+```bash
+backendbridge diff --from symfony -s ./my-symfony-app
+```
+
+Shows what `migrate` would generate — no files written.
+
+### `mapping-export` / `apply-mapping` — business mapping
+
+```bash
+backendbridge mapping-export --from symfony -s ./my-symfony --openapi ./api.yaml --out ./mapping/map.json
+backendbridge apply-mapping --mapping ./mapping/map.json --target ./my-laravel --framework laravel
+```
+
+### `run-plan` — action pipeline
 
 ```yaml
 # bridge.pipeline.yaml
@@ -215,7 +237,6 @@ actions:
     from: auto
     source: ./api-source
     out: ./contracts/api.yaml
-
   - type: convert
     from: auto
     to: laravel
@@ -228,51 +249,30 @@ actions:
 backendbridge run-plan --file ./bridge.pipeline.yaml
 ```
 
-### Autres commandes
+### Other commands
 
-| Commande | Description |
-|----------|-------------|
-| `diff` | Prévisualise ce qui serait généré sans écrire de fichiers |
-| `setup` | Vérifie PHP, Composer, Laravel CLI, Symfony CLI |
-| `create` | Crée un nouveau projet Laravel ou Symfony |
-| `run` | Démarre Laravel et Symfony en parallèle |
-| `convert-config` | Traduit `security.yaml` (Symfony) ↔ `auth.php` (Laravel) |
-| `release` | Bump version, génère CHANGELOG, publie sur npm |
+| Command | Description |
+|---|---|
+| `setup` | Check PHP, Composer, Laravel CLI, Symfony CLI |
+| `create` | Create a new Laravel or Symfony project |
+| `run` | Start Laravel and Symfony in parallel |
+| `convert-config` | Translate `security.yaml` (Symfony) ↔ `auth.php` (Laravel) |
+| `release` | Bump version, generate CHANGELOG, publish to npm |
 
 ---
 
-## Scripts de dev
+## Dev scripts
 
 ```bash
 npm run lint    # TypeScript strict check
-npm test        # 99 tests (vitest)
+npm test        # 161 tests (vitest)
 npm run build   # tsup → dist/
-npm run package # binaire standalone (Node.js SEA)
+npm run package # standalone binary (Node.js SEA)
 ```
 
 ---
 
-## Traduction de la logique métier
+## Known limits
 
-La commande `migrate` analyse les controllers source et traduit automatiquement les patterns courants :
-
-| Laravel (source) | Symfony (généré) |
-|------------------|-----------------|
-| `return response()->json($data)` | `return $this->json($data)` |
-| `auth()->user()` | `$this->getUser()` |
-| `$request->all()` | `$request->request->all()` |
-| `Post::all()` | `$em->getRepository(Post::class)->findAll()` |
-| `Post::find($id)` | `$em->getRepository(Post::class)->find($id)` |
-| `$post->save()` | `$em->persist($post); $em->flush()` |
-| `DB::beginTransaction()` | `$em->beginTransaction()` |
-| `Log::info(...)` | `$this->logger->info(...)` |
-| `dispatch(new Job(...))` | `$this->messageBus->dispatch(new Job(...))` |
-
-Et l'inverse (Symfony → Laravel). Les patterns non reconnus sont inclus en commentaire avec la source originale.
-
-Flag : `--with-source-logic` (activé automatiquement par `migrate`).
-
-## Limites connues
-
-- **La logique métier complexe** (conditions imbriquées, services custom, business rules) reste à compléter manuellement — le code source original est inclus en commentaire dans le controller généré.
-- **Les relations Doctrine complexes** (héritage de table, embeddables) ne sont pas couvertes.
+- **Complex custom business logic** (deeply nested conditions, domain-specific services) — the 3-layer translation covers ~90% of common patterns; the rest lands as `// TODO:` with original source in comments.
+- **Advanced Doctrine relations** (table inheritance, embeddables) — not covered.

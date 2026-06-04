@@ -1,20 +1,29 @@
-import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 
-// ─── Model catalogue ──────────────────────────────────────────────────────────
+// ─── Model catalogue (all free, verified on OpenRouter) ───────────────────────
 
-/** Primary: Gemma 4 31B — strong on code & reasoning, 256 K ctx, free tier */
-const MODEL_CODE = "google/gemma-3-27b-it:free";
+/**
+ * Primary: Gemma 4 31B IT — Google DeepMind, 256K ctx, strong on code.
+ * Tested: produces concise, accurate Doctrine/Eloquent code.
+ */
+const MODEL_CODE = "google/gemma-4-31b-it:free";
 
-/** Fallback chain when primary is unavailable / rate-limited */
+/**
+ * Fallback chain — tried in order when primary is rate-limited or down.
+ * - Nemotron 3 Super 120B: NVIDIA MoE, 12B active, 1M ctx, SWE-Bench strong.
+ * - GPT-OSS 120B: OpenAI open-weight, excellent code quality, 1M ctx.
+ */
 const MODEL_CODE_FALLBACKS = [
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "mistralai/mistral-7b-instruct:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "openai/gpt-oss-120b:free",
 ];
 
-/** Lightweight model for short explanations / TODO comments */
-const MODEL_EXPLAIN = "openai/gpt-4o-mini-search-preview";   // gpt-oss-120b alias on OpenRouter
+/**
+ * Lightweight model for short explanations (1-2 sentences).
+ * GPT-OSS 20B: small, fast, free. Falls back to primary if unavailable.
+ */
+const MODEL_EXPLAIN = "openai/gpt-oss-20b:free";
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
 const TIMEOUT_MS     = 30_000;

@@ -27,39 +27,43 @@ const program = new Command();
 
 program
   .name("backendbridge")
-  .description("CLI de bridge REST Symfony <-> Laravel (routes, ApiPlatform, mapping metier, release)")
+  .alias("bb")
+  .description("Convert Symfony APIs to Laravel — and back — in minutes.")
   .version("0.2.0");
 
 program
   .command("convert")
   .description("Convertir une API source Symfony/Laravel vers un scaffold cible")
   .requiredOption("--to <framework>", "Framework cible: symfony | laravel")
-  .requiredOption("--openapi <path>", "Chemin du contrat OpenAPI (.yaml/.yml/.json)")
-  .option("--mapping <path>", "Fichier JSON de mapping metier (DTO/validation/auth)")
+  .requiredOption("--openapi <path>", "Contrat OpenAPI (.yaml/.yml/.json)")
   .option("--from <framework>", "Framework source: symfony | laravel | auto", "auto")
-  .option("--source <path>", "Dossier source du projet API", process.cwd())
-  .option("--out <path>", "Dossier de sortie de la conversion", "./generated")
-  .option("--extract-if-missing", "Extraire automatiquement OpenAPI si le fichier n'existe pas")
-  .option("--use-php-ast", "Utiliser un parseur PHP AST (requiert php) pour l'extraction ApiPlatform", false)
-  .option("--env-out-name <name>", "Nom du fichier .env généré dans le dossier de sortie")
-  .option("--extract-out <path>", "Chemin de sortie OpenAPI lors d'une extraction auto")
-  .option("--target-version <version>", "Version cible du framework")
-  .option("--with-tests", "Generer un squelette phpunit dans la sortie", false)
-  .option("--with-docker", "Generer Dockerfile + docker-compose.yml dans la sortie", false)
-  .option("--with-seeders", "Generer seeders, factories (Laravel) ou fixtures (Symfony)", false)
-  .option("--with-middleware", "Generer middleware auth/JWT/throttle/CORS", false)
-  .option("--with-mailer", "Generer config mailer + stubs Mailable/Symfony Email", false)
-  .option("--with-jobs", "Generer Jobs/Messages, Events/Listeners et Notifications", false)
-  .option("--with-auth", "Generer Policies (Laravel) ou Voters (Symfony) (auto-extrait de la source si pas de mapping)", false)
-  .option("--with-source-logic", "Traduire la logique metier source (Eloquent↔Doctrine, auth, response…) et l'injecter dans les controllers generés", false)
-  .option("--with-services", "Generer stubs de Service depuis l'analyse des controllers source", false)
-  .option("--with-repositories", "Generer Repository/Interface par resource", false)
-  .option("--with-commands", "Generer Console Commands (Artisan/Symfony) par resource", false)
-  .option("--with-translations", "Generer fichiers lang en/fr", false)
-  .option("--with-extras", "Generer Guard+Provider+Collection (Laravel) ou EventSubscriber (Symfony)", false)
-  .option("--commit <message>", "Message de commit conventionnel")
-  .option("--no-git-commit", "Desactiver le commit automatique")
-  .option("--dry-run", "Simuler la conversion sans commit")
+  .option("-s, --source <path>", "Dossier source du projet API", process.cwd())
+  .option("-o, --out <path>", "Dossier de sortie", "./generated")
+  .option("--mapping <path>", "Fichier JSON de mapping métier")
+  .option("--extract-if-missing", "Extraire OpenAPI automatiquement si absent")
+  .option("--env-out-name <name>", "Nom du fichier .env généré")
+  .option("--extract-out <path>", "Chemin de sortie OpenAPI (extraction auto)")
+  .option("--target-version <ver>", "Version cible du framework")
+  // ── Shorthand feature flags ──────────────────────────────────────────────────
+  .option("-A, --all", "Activer tous les générateurs optionnels (auth, services, repos, etc.)", false)
+  .option("--with-auth",         "Policies (Laravel) ou Voters (Symfony)", false)
+  .option("--with-services",     "Stubs de Service depuis les controllers source", false)
+  .option("--with-repos",        "Repository + Interface par ressource", false)
+  .option("--with-repositories", "Alias de --with-repos", false)
+  .option("--with-commands",     "Console Commands Artisan / Symfony", false)
+  .option("--with-translations", "Fichiers lang en/fr", false)
+  .option("--with-jobs",         "Jobs / Events / Listeners / Notifications", false)
+  .option("--with-middleware",   "Middleware JWT/auth/throttle/CORS", false)
+  .option("--with-mailer",       "Stubs Mailable ou Mailer service", false)
+  .option("--with-seeders",      "Seeders + Factories (Laravel) ou Fixtures (Symfony)", false)
+  .option("--with-extras",       "Guard+Provider+Collection ou EventSubscriber", false)
+  .option("--with-tests",        "Squelette PHPUnit", false)
+  .option("--with-docker",       "Dockerfile + docker-compose.yml", false)
+  .option("--with-source-logic", "Traduire la logique métier source (AST+LLM)", false)
+  // ── Git / dry-run ────────────────────────────────────────────────────────────
+  .option("--commit <message>", "Message de commit")
+  .option("--no-git-commit", "Désactiver le commit automatique")
+  .option("-n, --dry-run", "Simuler sans écrire")
   .action(async (rawOptions) => {
     try {
       const to = rawOptions.to as SupportedFramework;
@@ -77,6 +81,10 @@ program
       const openApiPath = path.resolve(rawOptions.openapi);
       const mappingPath = rawOptions.mapping ? path.resolve(rawOptions.mapping) : undefined;
 
+      // --all enables every optional generator
+      const all = Boolean(rawOptions.all);
+      const withRepos = all || Boolean(rawOptions.withRepos) || Boolean(rawOptions.withRepositories);
+
       const label = from === "auto" ? `auto → ${to}` : `${from} → ${to}`;
       const done = startTask(`Converting ${label}`);
       const t0 = Date.now();
@@ -90,24 +98,23 @@ program
           openApiPath,
           mappingPath,
           extractIfMissing: Boolean(rawOptions.extractIfMissing),
-          usePhpAst: Boolean(rawOptions.usePhpAst),
           extractOutPath: rawOptions.extractOut ? path.resolve(rawOptions.extractOut) : undefined,
           envOutName: rawOptions.envOutName,
           targetVersion: rawOptions.targetVersion,
           dryRun: Boolean(rawOptions.dryRun),
-          withTests: Boolean(rawOptions.withTests),
-          withDocker: Boolean(rawOptions.withDocker),
-          withSeeders: Boolean(rawOptions.withSeeders),
-          withMiddleware: Boolean(rawOptions.withMiddleware),
-          withMailer: Boolean(rawOptions.withMailer),
-          withJobs: Boolean(rawOptions.withJobs),
-          withAuth: Boolean(rawOptions.withAuth),
-          withSourceLogic: Boolean(rawOptions.withSourceLogic),
-          withServices: Boolean(rawOptions.withServices),
-          withRepositories: Boolean(rawOptions.withRepositories),
-          withCommands: Boolean(rawOptions.withCommands),
-          withTranslations: Boolean(rawOptions.withTranslations),
-          withExtras: Boolean(rawOptions.withExtras),
+          withTests:        all || Boolean(rawOptions.withTests),
+          withDocker:       all || Boolean(rawOptions.withDocker),
+          withSeeders:      all || Boolean(rawOptions.withSeeders),
+          withMiddleware:   all || Boolean(rawOptions.withMiddleware),
+          withMailer:       all || Boolean(rawOptions.withMailer),
+          withJobs:         all || Boolean(rawOptions.withJobs),
+          withAuth:         all || Boolean(rawOptions.withAuth),
+          withSourceLogic:  all || Boolean(rawOptions.withSourceLogic),
+          withServices:     all || Boolean(rawOptions.withServices),
+          withRepositories: withRepos,
+          withCommands:     all || Boolean(rawOptions.withCommands),
+          withTranslations: all || Boolean(rawOptions.withTranslations),
+          withExtras:       all || Boolean(rawOptions.withExtras),
         },
         Boolean(rawOptions.gitCommit),
         rawOptions.commit,
@@ -806,19 +813,17 @@ program
 
 program
   .command("migrate")
-  .description(
-    "Conversion intelligente : détecte automatiquement les features présentes et génère uniquement ce qui est pertinent",
-  )
+  .description("Détecte automatiquement les features et génère le scaffold complet — commande principale")
   .option("--from <framework>", "Framework source: symfony | laravel | auto", "auto")
-  .option("--to <framework>", "Framework cible: symfony | laravel (auto = opposé du source)")
-  .option("--source <path>", "Dossier source du projet API", process.cwd())
-  .option("--out <path>", "Dossier de sortie", "./generated")
-  .option("--openapi <path>", "Contrat OpenAPI (.yaml/.json) — extrait automatiquement si absent")
-  .option("--mapping <path>", "Fichier JSON de mapping métier")
-  .option("--target-version <version>", "Version cible du framework")
+  .option("--to <framework>",   "Framework cible (auto = opposé du source)")
+  .option("-s, --source <path>", "Dossier source du projet", process.cwd())
+  .option("-o, --out <path>",    "Dossier de sortie", "./generated")
+  .option("--openapi <path>",   "Contrat OpenAPI — extrait auto si absent")
+  .option("--mapping <path>",   "Fichier JSON de mapping métier")
+  .option("--target-version <ver>", "Version cible du framework")
   .option("--commit <message>", "Message de commit")
-  .option("--no-git-commit", "Désactiver le commit automatique")
-  .option("--dry-run", "Simuler sans écrire", false)
+  .option("--no-git-commit",    "Désactiver le commit automatique")
+  .option("-n, --dry-run",      "Simuler sans écrire", false)
   .action(async (rawOptions) => {
     const sourcePath = path.resolve(rawOptions.source);
     const baseOut = path.resolve(rawOptions.out);
