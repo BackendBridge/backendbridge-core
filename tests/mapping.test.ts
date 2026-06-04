@@ -6,7 +6,7 @@ import { runConversion } from "../src/convert.js";
 import { runMappingExport } from "../src/mapping.js";
 
 describe("mapping export/import usage", () => {
-  it("exporte un mapping puis l'applique en conversion", () => {
+  it("exporte un mapping puis l'applique en conversion", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "backendbridge-mapping-"));
     const sourcePath = path.join(tmpDir, "source");
     const openApiPath = path.join(tmpDir, "contract.yaml");
@@ -41,7 +41,7 @@ describe("mapping export/import usage", () => {
     expect(exported.rules).toBeGreaterThan(0);
     expect(fs.existsSync(mappingPath)).toBe(true);
 
-    const converted = runConversion(
+    const converted = await runConversion(
       {
         from: "laravel",
         to: "symfony",

@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { SupportedFramework } from "./types.js";
-import { translatePhpBody, formatTranslatedBlock } from "./logic-translator.js";
+import { translatePhpBodyAsync, formatTranslatedBlock } from "./logic-translator.js";
 import { parseMethodBodies as parseMethodBodiesEmbedded } from "./php-scripts.generated.js";
 
 // ─── HTTP method → typical CRUD method names ──────────────────────────────────
@@ -145,12 +145,12 @@ export interface EnhancementSummary {
   warnings: string[];
 }
 
-export function enhanceControllersWithSourceLogic(
+export async function enhanceControllersWithSourceLogic(
   sourcePath: string,
   from: SupportedFramework,
   to: SupportedFramework,
   generatedOutPath: string,
-): EnhancementSummary {
+): Promise<EnhancementSummary> {
   const summary: EnhancementSummary = { enhanced: 0, skipped: 0, warnings: [] };
 
   // Determine source controller directory
@@ -203,8 +203,8 @@ export function enhanceControllersWithSourceLogic(
       continue;
     }
 
-    // Translate the body
-    const translated = translatePhpBody(sourceMethod.body, from, to);
+    // Translate the body (AST → regex → LLM fallback)
+    const translated = await translatePhpBodyAsync(sourceMethod.body, from, to);
     const block = formatTranslatedBlock(
       sourceMethod.body,
       translated,

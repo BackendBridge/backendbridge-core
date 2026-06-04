@@ -43,11 +43,11 @@ export interface ConvertResult {
   dockerized: boolean;
 }
 
-export function runConversion(
+export async function runConversion(
   options: ConvertOptions,
   shouldCommit: boolean,
   commitMessage?: string,
-): ConvertResult {
+): Promise<ConvertResult> {
   const from = resolveFramework(options.from, options.sourcePath);
   const to = options.to;
 
@@ -311,7 +311,7 @@ export function runConversion(
   // Inject translated source logic into generated controllers
   if (options.withSourceLogic && !options.dryRun) {
     try {
-      const summary = enhanceControllersWithSourceLogic(
+      const summary = await enhanceControllersWithSourceLogic(
         options.sourcePath, from, to, options.outPath,
       );
       if (summary.enhanced > 0) {

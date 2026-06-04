@@ -55,7 +55,7 @@ describe("e2e: Laravel → Symfony conversion", () => {
     expect(doc.components?.schemas).toBeDefined();
   });
 
-  it("generates valid Symfony scaffold with controllers and DTOs", () => {
+  it("generates valid Symfony scaffold with controllers and DTOs", async () => {
     // Extract first
     runExtraction(
       { from: "laravel", sourcePath: fixturesDir, outPath: openApiPath, dryRun: true },
@@ -63,7 +63,7 @@ describe("e2e: Laravel → Symfony conversion", () => {
     );
 
     // Convert to Symfony
-    const result = runConversion(
+    const result = await runConversion(
       {
         from: "laravel",
         to: "symfony",

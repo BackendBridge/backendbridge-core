@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { runPipeline } from "../src/pipeline.js";
 
 describe("runPipeline", () => {
-  it("execute un plan extract puis convert en dry-run", () => {
+  it("execute un plan extract puis convert en dry-run", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "backendbridge-pipeline-"));
     const sourcePath = path.join(tmpDir, "source");
     const routesPath = path.join(sourcePath, "routes");
@@ -41,7 +41,7 @@ actions:
       "utf8",
     );
 
-    const result = runPipeline(planPath, false, true);
+    const result = await runPipeline(planPath, false, true);
 
     expect(result.actions).toBe(2);
     expect(result.summaries).toHaveLength(2);

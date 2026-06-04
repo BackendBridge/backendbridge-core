@@ -53,7 +53,7 @@ describe("e2e: Symfony → Laravel conversion", () => {
     expect((productShow.responses as Record<string, unknown>)["404"]).toBeDefined();
   });
 
-  it("generates valid Laravel scaffold with controllers and FormRequests", () => {
+  it("generates valid Laravel scaffold with controllers and FormRequests", async () => {
     // Extract
     runExtraction(
       { from: "symfony", sourcePath: fixturesDir, outPath: openApiPath, dryRun: true },
@@ -61,7 +61,7 @@ describe("e2e: Symfony → Laravel conversion", () => {
     );
 
     // Convert to Laravel
-    const result = runConversion(
+    const result = await runConversion(
       {
         from: "symfony",
         to: "laravel",

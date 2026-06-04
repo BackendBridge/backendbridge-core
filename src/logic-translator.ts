@@ -1,9 +1,15 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SupportedFramework } from "./types.js";
 
 export interface TranslationResult {
   code: string;
   warnings: string[];
   translatedCount: number;
+  engine?: "regex" | "ast" | "llm";
 }
 
 // ─── Rule definition ──────────────────────────────────────────────────────────
@@ -246,15 +252,44 @@ const SYMFONY_TO_LARAVEL: Rule[] = [
   { pattern: /throw \$this->createAccessDeniedException\(([^)]*)\)/g, replacement: "abort(403, $1)" },
 ];
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-export function translatePhpBody(
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function phpAvailable(): boolean {
+  try { execFileSync("php", ["--version"], { stdio: "pipe" }); return true; } catch { return false; }
+}
+
+function transformScriptPath(): string {
+  // Resolve from src/ → ../tools/transform_logic.php
+  return path.resolve(__dirname, "..", "tools", "transform_logic.php");
+}
+
+/** Run the PHP AST transformer. Returns null if PHP unavailable or script missing. */
+function runAstTransformer(
   body: string,
   from: SupportedFramework,
   to: SupportedFramework,
-): TranslationResult {
-  if (from === to) return { code: body, warnings: [], translatedCount: 0 };
+): TranslationResult | null {
+  const script = transformScriptPath();
+  if (!fs.existsSync(script) || !phpAvailable()) return null;
 
+  try {
+    const output = execFileSync("php", [script, `--from=${from}`, `--to=${to}`], {
+      input: body,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 10_000,
+    }).toString("utf8");
+
+    const parsed = JSON.parse(output) as { code: string; warnings: string[]; translatedCount: number };
+    return { ...parsed, engine: "ast" };
+  } catch {
+    return null;
+  }
+}
+
+/** Apply regex rules to a code string. */
+function applyRegexRules(body: string, from: SupportedFramework, to: SupportedFramework): TranslationResult {
   const rules = from === "laravel" ? LARAVEL_TO_SYMFONY : SYMFONY_TO_LARAVEL;
   const warnings: string[] = [];
   let translatedCount = 0;
@@ -271,11 +306,79 @@ export function translatePhpBody(
       translatedCount++;
       if (rule.warning) warnings.push(rule.warning);
     }
-    // Reset lastIndex for global regexes
     rule.pattern.lastIndex = 0;
   }
 
-  return { code, warnings, translatedCount };
+  return { code, warnings, translatedCount, engine: "regex" };
+}
+
+/** Heuristic: does the code still contain untranslated framework-specific patterns? */
+function hasRemainingPatterns(code: string, from: SupportedFramework): boolean {
+  if (from === "laravel") {
+    return /(?:DB|Log|Cache|Mail)::|auth\(\)|response\(\)->|::(?:all|find|where|create|paginate)\(/.test(code);
+  }
+  return /\$this->(?:entityManager|logger|cache|messageBus|eventDispatcher)|createNotFoundException|denyAccessUnlessGranted/.test(code);
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Synchronous translation: AST first, regex fallback.
+ * For async LLM fallback use translatePhpBodyAsync().
+ */
+export function translatePhpBody(
+  body: string,
+  from: SupportedFramework,
+  to: SupportedFramework,
+): TranslationResult {
+  if (from === to) return { code: body, warnings: [], translatedCount: 0, engine: "regex" };
+
+  // 1. Try AST transformer (handles multi-line chains, nested calls)
+  const astResult = runAstTransformer(body, from, to);
+  if (astResult && astResult.translatedCount > 0) {
+    // AST succeeded — return as-is (don't re-run regex, would cause double-prefixing)
+    return astResult;
+  }
+
+  // 2. Regex-only fallback (single-line patterns)
+  return applyRegexRules(body, from, to);
+}
+
+/**
+ * Async translation: AST → regex → LLM fallback (OpenRouter).
+ * Use this in the controller-enhancer when a full async context is available.
+ */
+export async function translatePhpBodyAsync(
+  body: string,
+  from: SupportedFramework,
+  to: SupportedFramework,
+): Promise<TranslationResult> {
+  if (from === to) return { code: body, warnings: [], translatedCount: 0, engine: "regex" };
+
+  // 1. AST + regex
+  const syncResult = translatePhpBody(body, from, to);
+
+  // 2. If patterns remain and OpenRouter key is available, call LLM
+  if (hasRemainingPatterns(syncResult.code, from) && body.split("\n").length <= 80) {
+    try {
+      const { llmTranslateBody, openRouterAvailable } = await import("./openrouter.js");
+      if (openRouterAvailable()) {
+        const llmResult = await llmTranslateBody(body, syncResult.code, from, to);
+        if (llmResult.code && llmResult.code !== syncResult.code) {
+          return {
+            code: llmResult.code,
+            warnings: [...syncResult.warnings, `[LLM:${llmResult.model}] translated remaining patterns`],
+            translatedCount: syncResult.translatedCount + 1,
+            engine: "llm",
+          };
+        }
+      }
+    } catch {
+      // LLM unavailable — keep sync result
+    }
+  }
+
+  return syncResult;
 }
 
 export function formatTranslatedBlock(

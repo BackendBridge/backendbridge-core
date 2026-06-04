@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { runConversion } from "../src/convert.js";
 
 describe("runConversion", () => {
-  it("genere un scaffold Laravel en dry-run", () => {
+  it("genere un scaffold Laravel en dry-run", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "backendbridge-convert-"));
     const sourcePath = path.join(tmpDir, "source");
     const outPath = path.join(tmpDir, "out");
@@ -38,7 +38,7 @@ describe("runConversion", () => {
       "utf8",
     );
 
-    const result = runConversion(
+    const result = await runConversion(
       {
         from: "auto",
         to: "laravel",

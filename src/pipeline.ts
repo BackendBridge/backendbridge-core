@@ -56,11 +56,11 @@ function resolveFromPlan(baseDir: string, maybeRelative: string): string {
   return path.resolve(baseDir, maybeRelative);
 }
 
-export function runPipeline(
+export async function runPipeline(
   planPath: string,
   shouldCommit: boolean,
   dryRun: boolean,
-): RunPipelineResult {
+): Promise<RunPipelineResult> {
   const absolutePlanPath = path.resolve(planPath);
   const planDir = path.dirname(absolutePlanPath);
   const parsed = PipelineSchema.safeParse(readPlan(absolutePlanPath));
@@ -90,7 +90,7 @@ export function runPipeline(
       continue;
     }
 
-    const result = runConversion(
+    const result = await runConversion(
       {
         from: action.from,
         to: action.to as SupportedFramework,

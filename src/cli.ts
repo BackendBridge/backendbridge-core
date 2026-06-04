@@ -81,7 +81,7 @@ program
       const done = startTask(`Converting ${label}`);
       const t0 = Date.now();
 
-      const result = runConversion(
+      const result = await runConversion(
         {
           from,
           to,
@@ -334,7 +334,7 @@ program
       const filePath = path.resolve(rawOptions.file);
       const done = startTask("Running pipeline");
       const t0 = Date.now();
-      const result = runPipeline(filePath, Boolean(rawOptions.gitCommit), Boolean(rawOptions.dryRun));
+      const result = await runPipeline(filePath, Boolean(rawOptions.gitCommit), Boolean(rawOptions.dryRun));
       done("ok", formatDuration(Date.now() - t0));
 
       console.log("");
@@ -658,7 +658,7 @@ program
       const done = startTask(`Generating ${fw} scaffold`);
       const t0 = Date.now();
       try {
-        const result = runConversion(
+        const result = await runConversion(
           { ...sharedOpts, to: fw, outPath },
           false,
         );
@@ -886,7 +886,7 @@ program
     const t0 = Date.now();
 
     try {
-      const result = runConversion(
+      const result = await runConversion(
         {
           from,
           to,
